@@ -1,0 +1,151 @@
+#compdef znav j
+# _znav — Pure-Zsh Completion for znav & j (Zero Forks)
+
+emulate -L zsh
+setopt extended_glob warn_create_global typeset_silent no_short_loops
+
+_znav_complete_codes() {
+  emulate -L zsh
+  setopt extended_glob warn_create_global typeset_silent no_short_loops
+  _znav_ensure_full_bijection
+  (( ${#_ZNAV_RANKED_DIRS} == 0 )) && return 1
+
+  local -a _keys=() _disp=()
+  local _d _code _pretty _esc _w_s _top_raw=${_ZNAV_SCORE[${_ZNAV_RANKED_DIRS[1]}]} _cur_raw
+  float -E 17 _hl=$ZNAV_HALF_LIFE _tau _lmax _w
+  (( _hl <= 0.0 )) && _hl=259200.0
+  (( _tau = _hl / log(2.0) ))
+  (( _lmax = _top_raw ))
+
+  for _d in "${_ZNAV_RANKED_DIRS[@]}"; do
+    [[ -d $_d ]] || continue
+    _code=${_ZNAV_DIR2CODE[$_d]:-}
+    [[ -z $_code ]] && continue
+    _cur_raw=${_ZNAV_SCORE[$_d]}
+    (( _w = exp((_cur_raw - _lmax) / _tau) ))
+    builtin printf -v _w_s '%.2f' $_w
+    _pretty=$_d
+    if [[ -n ${HOME:-} ]]; then
+      if [[ $_pretty == $HOME ]]; then
+        _pretty='~'
+      elif [[ $_pretty == $HOME/* ]]; then
+        _pretty="~/${_pretty#$HOME/}"
+      fi
+    fi
+    _pretty=${_pretty//$'\n'/\\n}
+    _esc=${_pretty//:/\\:}
+    _keys+=("$_code")
+    _disp+=("${_code}:${_esc} [rel=${_w_s}]")
+  done
+
+  (( ${#_keys} == 0 )) && return 1
+  _describe -V -t znav-codes 'znav shortcode' _disp _keys
+}
+
+_znav_complete_jump_args() {
+  emulate -L zsh
+  setopt extended_glob warn_create_global typeset_silent no_short_loops
+
+  if (( CURRENT == 2 )); then
+    if [[ $PREFIX == -* ]]; then
+      local -a _jopts=(
+        '-l:list ranked directories and shortcodes'
+        '--list:list ranked directories and shortcodes'
+        '-p:print resolved path without changing directory'
+        '--print:print resolved path without changing directory'
+        '-s:show Shannon entropy and keystroke statistics'
+        '--stats:show Shannon entropy and keystroke statistics'
+        '-e:explain shortcode candidate lattice'
+        '--explain:explain shortcode candidate lattice'
+        '-h:display help message'
+        '--help:display help message'
+      )
+      _describe -t options 'option' _jopts
+      return
+    fi
+    if [[ $PREFIX == */* ]]; then
+      local _head=${PREFIX%%/*}
+      if _znav_resolve 0 "$_head" && [[ -d $REPLY ]]; then
+        compset -P '[^/]##/'
+        _path_files -W "$REPLY" -/
+        return
+      fi
+    fi
+    integer _ret=1
+    _znav_complete_codes && _ret=0
+    _directories && _ret=0
+    return $_ret
+  elif (( CURRENT >= 3 )); then
+    local _first=${words[2]}
+    if _znav_resolve 0 "$_first" && [[ -d $REPLY ]]; then
+      _path_files -W "$REPLY" -/
+      return
+    fi
+  fi
+  return 1
+}
+
+if [[ $service != znav ]]; then
+  _znav_complete_jump_args
+  local _rc=$?
+  unfunction _znav_complete_codes _znav_complete_jump_args 2>/dev/null || true
+  return $_rc
+fi
+
+if (( CURRENT == 2 )); then
+  local -a _subcmds=(
+    'jump:jump to highest-ranked matching directory'
+    'query:print resolved target directory without cd'
+    'list:display ranked directories, shortcodes and scores'
+    'explain:inspect candidate lattice K(d) and collision reasons'
+    'stats:compute Shannon entropy bounds and keystroke savings'
+    'seed:bootstrap unseen depth-1 workspace subdirectories'
+    'compact:atomically compact WAL into snapshot db.tsv'
+    'prune:remove deleted directories from database'
+    'compile:zcompile plugin and autoload functions to bytecode'
+    'init:configure AUTO_CD and CDABLE_VARS integration'
+    'help:display usage summary'
+  )
+  _describe -t commands 'znav subcommand' _subcmds
+  local _rc=$?
+  unfunction _znav_complete_codes _znav_complete_jump_args 2>/dev/null || true
+  return $_rc
+fi
+
+local _sub=${words[2]}
+shift words
+(( CURRENT-- ))
+
+integer _rc=1
+case $_sub in
+  (jump|cd|j|query|resolve)
+    _znav_complete_jump_args && _rc=0
+    ;;
+  (explain)
+    if (( CURRENT == 2 )); then
+      _znav_complete_codes && _rc=0
+      _directories && _rc=0
+    fi
+    ;;
+  (seed)
+    _directories && _rc=0
+    ;;
+  (list|ls)
+    local -a _lopts=(
+      '-n:limit number of displayed rows'
+      '--limit:limit number of displayed rows'
+      '--tsv:output machine-readable tab-separated rows'
+    )
+    _describe -t options 'list option' _lopts && _rc=0
+    ;;
+  (init)
+    local -a _iopts=(
+      '--auto-cd:enable AUTO_CD and CDABLE_VARS for bare shortcodes'
+      '--no-cmd:disable wrapper command function'
+    )
+    _describe -t options 'init option' _iopts && _rc=0
+    ;;
+esac
+
+unfunction _znav_complete_codes _znav_complete_jump_args 2>/dev/null || true
+return $_rc

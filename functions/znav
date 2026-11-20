@@ -1,0 +1,501 @@
+#autoload
+# znav — Formally Verified, Zero-Fork Directory Navigation Engine for Zsh
+
+# Handle `znav init` BEFORE `emulate -L zsh` so option changes (AUTO_CD, CDABLE_VARS)
+# persist in the caller's interactive shell without leaking internal options.
+if [[ ${1:-} == init ]]; then
+  () {
+    emulate -L zsh
+    setopt extended_glob warn_create_global typeset_silent no_short_loops
+    shift
+    integer _auto_cd=0 _no_cmd=0
+    while (( $# > 0 )); do
+      case $1 in
+        (--auto-cd) _auto_cd=1; shift ;;
+        (--no-cmd)  _no_cmd=1; shift ;;
+        (*)         shift ;;
+      esac
+    done
+    if (( _auto_cd )); then
+      typeset -g ZNAV_AVOID_COMMANDS=1
+      _znav_rebuild_projections
+    fi
+    if (( _no_cmd )) && [[ -n ${ZNAV_CMD:-} && ${ZNAV_CMD} != none ]]; then
+      unfunction "$ZNAV_CMD" 2>/dev/null || true
+      typeset -g ZNAV_CMD=none
+    fi
+    return $(( _auto_cd ? 10 : 0 ))
+  } "$@"
+  if (( $? == 10 )); then
+    builtin setopt AUTO_CD CDABLE_VARS
+  fi
+  return 0
+fi
+
+emulate -L zsh
+setopt extended_glob warn_create_global typeset_silent no_short_loops
+
+local _subcmd=${1:-list}
+(( $# > 0 )) && shift
+
+# Helper to abbreviate $HOME prefix for human display without forks
+_znav_abbrev_home() {
+  emulate -L zsh
+  setopt extended_glob warn_create_global typeset_silent no_short_loops
+  local _p=$1
+  if [[ -n ${HOME:-} ]]; then
+    if [[ $_p == $HOME ]]; then
+      _p='~'
+    elif [[ $_p == $HOME/* ]]; then
+      _p="~/${_p#$HOME/}"
+    fi
+  fi
+  REPLY=${_p//$'\n'/\\n}
+}
+
+case $_subcmd in
+  (jump|cd|j)
+    integer _print_only=0
+    while (( $# > 0 )); do
+      case $1 in
+        (-p|--print) _print_only=1; shift ;;
+        (-l|--list)  shift; unfunction _znav_abbrev_home 2>/dev/null || true; znav list "$@"; return $? ;;
+        (-h|--help)  shift; unfunction _znav_abbrev_home 2>/dev/null || true; znav help; return 0 ;;
+        (--)         shift; break ;;
+        (-*)
+          # Allow jumping to directories starting with '-' when they exist or match
+          break
+          ;;
+        (*)          break ;;
+      esac
+    done
+
+    local _target=""
+
+    if (( $# == 0 )); then
+      # With no arguments, jump to top-ranked existing directory != $PWD
+      _znav_ensure_full_bijection
+      _znav_canon_path "$PWD"
+      local _cur_pwd=$REPLY _d
+      for _d in "${_ZNAV_RANKED_DIRS[@]}"; do
+        if [[ $_d != $_cur_pwd && -d $_d ]]; then
+          _target=$_d
+          break
+        fi
+      done
+      [[ -z $_target && -n ${HOME:-} && -d $HOME ]] && _target=$HOME
+    elif (( $# == 1 )) && [[ $1 == */* && ! -d $1 ]]; then
+      # Support subpath shorthand: `j cr/znav` or `j code:repo/subdir`
+      local _head=${1%%/*} _rest=${1#*/}
+      if [[ -n $_head ]]; then
+        local -a _htoks=()
+        integer _hcol=0
+        if [[ $_head == *:* ]]; then
+          _hcol=1
+          _htoks=("${(@s.:.)_head}")
+        else
+          _htoks=("$_head")
+        fi
+        if _znav_resolve $_hcol "${_htoks[@]}" && [[ -d "$REPLY/$_rest" ]]; then
+          _znav_canon_path "$REPLY/$_rest" && _target=$REPLY
+        fi
+      fi
+    fi
+
+    # Multi-arg exact shortcode + relative subpath: `j cr znav` -> ~cr/znav
+    if [[ -z $_target ]] && (( $# >= 2 )); then
+      local _c1=$1 _c1l=${(L)1} _d0="" _rel=${(j:/:)argv[2,-1]}
+      if (( _ZNAV_CACHE_VALID && _ZNAV_LAST_SCORE_COUNT == ${#_ZNAV_SCORE} && _ZNAV_LAST_AVOID_CMDS == (ZNAV_AVOID_COMMANDS ? 1 : 0) )); then
+        if [[ -n ${_ZNAV_CODE2DIR[$_c1]+x} ]]; then
+          _d0=${_ZNAV_CODE2DIR[$_c1]}
+        elif [[ -n ${_ZNAV_CODE2DIR[$_c1l]+x} ]]; then
+          _d0=${_ZNAV_CODE2DIR[$_c1l]}
+        fi
+        if [[ -z $_d0 || ( _ZNAV_ALL_DIRTY && -z ${_ZNAV_TOP_POS[$_d0]+x} ) ]]; then
+          _znav_ensure_full_bijection
+          _d0=${_ZNAV_CODE2DIR[$_c1]:-${_ZNAV_CODE2DIR[$_c1l]:-}}
+        fi
+      else
+        _znav_ensure_full_bijection
+        _d0=${_ZNAV_CODE2DIR[$_c1]:-${_ZNAV_CODE2DIR[$_c1l]:-}}
+      fi
+      if [[ -n $_d0 && -d $_d0 && -d "$_d0/$_rel" ]]; then
+        _znav_canon_path "$_d0/$_rel" && _target=$REPLY
+      fi
+    fi
+
+    # Formal multi-token / single-token query resolution resolve(Q)
+    if [[ -z $_target ]] && (( $# >= 1 )); then
+      if (( $# == 1 )) && [[ $1 == *:* && ! -d $1 ]]; then
+        local -a _ctoks=("${(@s.:.)1}")
+        if _znav_resolve 1 "${_ctoks[@]}"; then
+          _target=$REPLY
+        fi
+      elif _znav_resolve 0 "$@"; then
+        _target=$REPLY
+      fi
+    fi
+
+    # Fallback multi-arg primary query + relative subpath
+    if [[ -z $_target ]] && (( $# >= 2 )); then
+      local _rel2=${(j:/:)argv[2,-1]}
+      if _znav_resolve 0 "$1" && [[ -d "$REPLY/$_rel2" ]]; then
+        _znav_canon_path "$REPLY/$_rel2" && _target=$REPLY
+      fi
+    fi
+
+    # Fallback literal filesystem directory
+    if [[ -z $_target ]] && (( $# == 1 )) && [[ -d $1 ]]; then
+      _znav_canon_path "$1" && _target=$REPLY
+    fi
+
+    unfunction _znav_abbrev_home 2>/dev/null || true
+    if [[ -z $_target || ! -d $_target ]]; then
+      builtin print -u2 -r -- "znav: no matching directory for: $*"
+      return 1
+    fi
+
+    if (( _print_only )); then
+      builtin print -r -- "$_target"
+      return 0
+    fi
+    builtin cd -- "$_target"
+    return $?
+    ;;
+
+  (query|resolve)
+    integer _colon=0
+    while (( $# > 0 )); do
+      case $1 in
+        (--colon|-c) _colon=1; shift ;;
+        (--)         shift; break ;;
+        (*)          break ;;
+      esac
+    done
+    unfunction _znav_abbrev_home 2>/dev/null || true
+    if (( $# == 1 )) && [[ $1 == *:* ]] && (( !_colon )); then
+      local -a _qtoks=("${(@s.:.)1}")
+      if _znav_resolve 1 "${_qtoks[@]}"; then
+        builtin print -r -- "$REPLY"
+        return 0
+      fi
+      return 1
+    fi
+    if _znav_resolve $_colon "$@"; then
+      builtin print -r -- "$REPLY"
+      return 0
+    fi
+    return 1
+    ;;
+
+  (list|ls|-l|--list)
+    integer _limit=0 _tsv=0
+    while (( $# > 0 )); do
+      case $1 in
+        (-n|--limit)
+          shift
+          (( $# > 0 )) && { _limit=$(( $1 )); shift; }
+          ;;
+        (--tsv) _tsv=1; shift ;;
+        (--)    shift; break ;;
+        (*)     break ;;
+      esac
+    done
+
+    _znav_ensure_full_bijection
+    integer _total=${#_ZNAV_RANKED_DIRS}
+    if (( _total == 0 )); then
+      unfunction _znav_abbrev_home 2>/dev/null || true
+      (( _tsv )) || builtin print -r -- "znav: database is empty (run 'znav seed' or 'cd' into directories)."
+      return 0
+    fi
+
+    _znav_now
+    local _top_raw=${_ZNAV_SCORE[${_ZNAV_RANKED_DIRS[1]}]} _cur_raw
+    float -E 17 _now=$REPLY _hl=$ZNAV_HALF_LIFE _tau _lmax _zsum=0.0 _w _prob _sc
+    (( _hl <= 0.0 )) && _hl=259200.0
+    (( _tau = _hl / log(2.0) ))
+    (( _lmax = _top_raw ))
+
+    local _d
+    for _d in "${_ZNAV_RANKED_DIRS[@]}"; do
+      _cur_raw=${_ZNAV_SCORE[$_d]}
+      (( _zsum += exp((_cur_raw - _lmax) / _tau) ))
+    done
+    (( _zsum <= 0.0 )) && _zsum=1.0
+
+    if (( !_tsv )); then
+      builtin printf '%4s  %-10s  %-12s  %14s  %8s  %7s  %s\n' \
+        'RANK' 'STATIC' 'DYNAMIC' 'LAMBDA' 'WEIGHT' 'P(d)' 'DIRECTORY'
+      builtin printf '%4s  %-10s  %-12s  %14s  %8s  %7s  %s\n' \
+        '----' '----------' '------------' '--------------' '--------' '-------' '---------'
+    fi
+
+    integer _idx=0
+    local _code _static _dyn _pretty
+    for _d in "${_ZNAV_RANKED_DIRS[@]}"; do
+      (( _idx++ ))
+      (( _limit > 0 && _idx > _limit )) && break
+      _code=${_ZNAV_DIR2CODE[$_d]:-}
+      _cur_raw=${_ZNAV_SCORE[$_d]}
+      (( _sc = _cur_raw ))
+      (( _w = exp((_sc - _now) / _tau) ))
+      (( _prob = exp((_sc - _lmax) / _tau) / _zsum ))
+      if (( _tsv )); then
+        builtin printf '%d\t%s\t%.9f\t%.6f\t%.6f\t%s\n' \
+          $_idx "$_code" $_sc $_w $_prob "$_d"
+      else
+        if [[ ${nameddirs[$_code]:-} == $_d ]]; then
+          _static="~${_code}"
+        else
+          _static="-"
+        fi
+        _dyn="~[${_code}]"
+        _znav_abbrev_home "$_d"
+        _pretty=$REPLY
+        builtin printf '%4d  %-10s  %-12s  %14.3f  %8.3f  %6.2f%%  %s\n' \
+          $_idx "$_static" "$_dyn" $_sc $_w $(( _prob * 100.0 )) "$_pretty"
+      fi
+    done
+    unfunction _znav_abbrev_home 2>/dev/null || true
+    return 0
+    ;;
+
+  (explain)
+    if (( $# == 0 )); then
+      set -- "$PWD"
+    fi
+    _znav_ensure_full_bijection
+    local _arg=$1 _target=""
+    if [[ -n ${_ZNAV_SCORE[$_arg]+x} ]]; then
+      _target=$_arg
+    elif [[ -d $_arg ]]; then
+      _znav_canon_path "$_arg" && [[ -n ${_ZNAV_SCORE[$REPLY]+x} ]] && _target=$REPLY
+      [[ -z $_target && -d $_arg ]] && { _znav_canon_path "$_arg"; _target=$REPLY; }
+    elif [[ -n ${_ZNAV_CODE2DIR[$_arg]+x} ]]; then
+      _target=${_ZNAV_CODE2DIR[$_arg]}
+    elif _znav_resolve 0 "$_arg"; then
+      _target=$REPLY
+    fi
+
+    unfunction _znav_abbrev_home 2>/dev/null || true
+    if [[ -z $_target ]]; then
+      builtin print -u2 -r -- "znav explain: unknown shortcode or directory: $_arg"
+      return 1
+    fi
+
+    integer _rank=${_ZNAV_RANKED_DIRS[(Ie)$_target]}
+    integer _depth=0 _blen
+    if [[ $_target != / ]]; then
+      local _sl=${_target//[^\/]/}
+      _depth=${#_sl}
+    fi
+    {
+      setopt localoptions no_multibyte
+      _blen=${#_target}
+    }
+
+    local -a _T=() _P=()
+    if [[ $_target == / ]]; then
+      _T=("root" "dir")
+    else
+      _znav_tokenize "${_target:t}"
+      _T=("${reply[@]}")
+      (( ${#_T} == 0 )) && _T=("dir")
+      local _par=${_target:h}
+      if [[ $_par != / && $_par != . && -n $_par ]]; then
+        _znav_tokenize "${_par:t}"
+        _P=("${reply[@]}")
+      fi
+    fi
+
+    builtin print -r -- "Directory   : $_target"
+    if (( _rank > 0 )); then
+      local _raw_tsc=${_ZNAV_SCORE[$_target]}
+      float -E 17 _sc _hl=$ZNAV_HALF_LIFE _tau _now _w
+      (( _sc = _raw_tsc ))
+      _znav_now
+      _now=$REPLY
+      (( _hl <= 0.0 )) && _hl=259200.0
+      (( _tau = _hl / log(2.0) ))
+      (( _w = exp((_sc - _now) / _tau) ))
+      local _assigned=${_ZNAV_DIR2CODE[$_target]:-} _sc_s _st_state="unprojected"
+      builtin printf -v _sc_s '%.6f' $_sc
+      [[ -n $_assigned && ${nameddirs[$_assigned]:-} == $_target ]] && _st_state="active"
+      builtin printf 'Rank (succ) : #%d of %d\n' $_rank ${#_ZNAV_RANKED_DIRS}
+      builtin printf 'Log-Epoch Λ : %.9f (decayed weight S(now) = %.4f)\n' $_sc $_w
+      builtin print -r -- "Order Tuple : (Λ=${_sc_s}, -depth=-${_depth}, -bytes=-${_blen}, lex)"
+      builtin print -r -- "Shortcode   : ~${_assigned} (static: ${_st_state}), ~[${_assigned}] (dynamic)"
+    else
+      builtin print -r -- "Rank (succ) : (untracked directory — previewing candidate lattice)"
+      builtin print -r -- "Order Tuple : (-depth=-${_depth}, -bytes=-${_blen}, lex)"
+    fi
+    builtin print -r -- "Tokens T(d) : [${(j:, :)_T}]"
+    builtin print -r -- "Parent P(d) : [${(j:, :)_P}]"
+    builtin print -r -- "Candidate Lattice K(d) Evaluation:"
+
+    _znav_candidates_finite "$_target"
+    local -a _cands=("${reply[@]}")
+    _znav_tier5_stem "$_target"
+    local _stem=$REPLY
+    (( ${_cands[(Ie)$_stem]} == 0 )) && _cands+=("$_stem")
+    _cands+=("${_stem}_2")
+
+    local _c _owner _assigned_cur=${_ZNAV_DIR2CODE[$_target]:-}
+    integer _cidx=0 _owner_rank
+    for _c in "${_cands[@]}"; do
+      (( _cidx++ ))
+      if [[ -n $_assigned_cur && $_c == $_assigned_cur ]]; then
+        builtin printf '  %2d. %-16s -> SELECTED (length %d)\n' $_cidx "$_c" ${#_c}
+        break
+      fi
+      _owner=${_ZNAV_CODE2DIR[$_c]:-}
+      if [[ -n $_owner && $_owner != $_target ]]; then
+        _owner_rank=${_ZNAV_RANKED_DIRS[(Ie)$_owner]}
+        builtin printf '  %2d. %-16s -> skipped (claimed by higher-ranked #%d: %s)\n' \
+          $_cidx "$_c" $_owner_rank "$_owner"
+      elif [[ $_c == znav || $_c == j || ( -n ${ZNAV_CMD:-} && $_c == $ZNAV_CMD ) ]]; then
+        builtin printf '  %2d. %-16s -> skipped (reserved: znav CLI identifier)\n' $_cidx "$_c"
+      elif (( ZNAV_AVOID_COMMANDS && $+commands[$_c] )); then
+        builtin printf '  %2d. %-16s -> skipped (reserved: external command %s)\n' $_cidx "$_c" "${commands[$_c]}"
+      elif (( ZNAV_AVOID_COMMANDS && ( $+builtins[$_c] || $+functions[$_c] || $+aliases[$_c] || ${reswords[(Ie)$_c]} ) )); then
+        builtin printf '  %2d. %-16s -> skipped (reserved: shell builtin/function/alias/keyword)\n' $_cidx "$_c"
+      elif (( $+nameddirs[$_c] && !$+_ZNAV_OWNED_NAMEDDIRS[$_c] )); then
+        builtin printf '  %2d. %-16s -> skipped (reserved: manual nameddir ~%s -> %s)\n' $_cidx "$_c" "$_c" "${nameddirs[$_c]}"
+      elif _znav_is_reserved "$_c"; then
+        builtin printf '  %2d. %-16s -> skipped (reserved: OS user ~%s)\n' $_cidx "$_c" "$_c"
+      else
+        builtin printf '  %2d. %-16s -> available (length %d)\n' $_cidx "$_c" ${#_c}
+      fi
+    done
+    return 0
+    ;;
+
+  (stats)
+    _znav_ensure_full_bijection
+    unfunction _znav_abbrev_home 2>/dev/null || true
+    integer _n=${#_ZNAV_RANKED_DIRS}
+    if (( _n == 0 )); then
+      builtin print -r -- "znav stats: database is empty (0 directories tracked)."
+      return 0
+    fi
+
+    local _top_sraw=${_ZNAV_SCORE[${_ZNAV_RANKED_DIRS[1]}]} _cur_sraw
+    float -E 17 _hl=$ZNAV_HALF_LIFE _tau _lmax _zsum=0.0 _p
+    float -E 17 _h_bits=0.0 _h_sigma=0.0 _exp_code=0.0 _exp_tilde=0.0 _exp_j=0.0 _exp_dyn=0.0 _exp_full_cd=0.0
+    integer _maint_alias_bits=0
+    (( _hl <= 0.0 )) && _hl=259200.0
+    (( _tau = _hl / log(2.0) ))
+    (( _lmax = _top_sraw ))
+
+    local _d _code _disp_p
+    for _d in "${_ZNAV_RANKED_DIRS[@]}"; do
+      _cur_sraw=${_ZNAV_SCORE[$_d]}
+      (( _zsum += exp((_cur_sraw - _lmax) / _tau) ))
+    done
+    (( _zsum <= 0.0 )) && _zsum=1.0
+
+    for _d in "${_ZNAV_RANKED_DIRS[@]}"; do
+      _code=${_ZNAV_DIR2CODE[$_d]:-}
+      _cur_sraw=${_ZNAV_SCORE[$_d]}
+      (( _p = exp((_cur_sraw - _lmax) / _tau) / _zsum ))
+      if (( _p > 0.0 )); then
+        (( _h_bits -= _p * (log(_p) / log(2.0)) ))
+      fi
+      _disp_p=$_d
+      if [[ -n ${HOME:-} && $_disp_p == $HOME/* ]]; then
+        _disp_p="~/${_disp_p#$HOME/}"
+      fi
+      (( _exp_code += _p * ${#_code} ))
+      (( _exp_tilde += _p * (1 + ${#_code}) ))
+      (( _exp_j += _p * (2 + ${#_code}) ))
+      (( _exp_dyn += _p * (3 + ${#_code}) ))
+      (( _exp_full_cd += _p * (3 + ${#_disp_p}) ))
+      (( _maint_alias_bits += (12 + ${#_code} + ${#_disp_p}) * 8 ))
+    done
+
+    # Alphabet Sigma = [a-z0-9_] has |Sigma| = 37 symbols
+    (( _h_sigma = _h_bits / (log(37.0) / log(2.0)) ))
+    float -E 17 _saving_pct=0.0
+    if (( _exp_full_cd > 0.0 )); then
+      (( _saving_pct = (1.0 - _exp_code / _exp_full_cd) * 100.0 ))
+    fi
+
+    builtin print -r -- "znav Information-Efficiency & Engine Telemetry"
+    builtin print -r -- "=============================================="
+    builtin printf 'Tracked directories (N)        : %d (projected hash -d: %d, WAL lines: %d)\n' \
+      $_n ${#_ZNAV_OWNED_NAMEDDIRS} $_ZNAV_WAL_LINES
+    builtin printf 'Half-life H / Decay τ          : %.0f s (%.1f h) / %.1f s\n' \
+      $_hl $(( _hl / 3600.0 )) $_tau
+    builtin printf 'Empirical Shannon Entropy H(P) : %.4f bits/jump\n' $_h_bits
+    builtin printf 'Source-Coding Bound H_37(P)    : %.4f chars (theoretical minimum code length)\n' $_h_sigma
+    builtin printf 'znav Expected Code Length E[ℓ] : %.4f chars (bare AUTO_CD+CDABLE_VARS)\n' $_exp_code
+    builtin printf 'znav Static ~code Cost         : %.4f chars (inline path args: vim ~cr/f)\n' $_exp_tilde
+    builtin printf 'znav Jump (j code) Cost        : %.4f chars\n' $_exp_j
+    builtin printf 'znav Dynamic (~[code]) Cost    : %.4f chars\n' $_exp_dyn
+    builtin printf 'Full (cd ~/...) Baseline Cost  : %.4f chars (%.1f%% keystroke reduction)\n' \
+      $_exp_full_cd $_saving_pct
+    builtin printf 'Human Config Maintenance Cost  : 0 bits (vs ~%d bits for %d manual aliases)\n' \
+      $_maint_alias_bits $_n
+    return 0
+    ;;
+
+  (seed)
+    unfunction _znav_abbrev_home 2>/dev/null || true
+    while (( $# > 0 )); do
+      case $1 in
+        (--) shift; break ;;
+        (*)  break ;;
+      esac
+    done
+    _znav_seed_roots "$@"
+    return 0
+    ;;
+
+  (compact)
+    unfunction _znav_abbrev_home 2>/dev/null || true
+    _znav_compact_impl 0
+    return 0
+    ;;
+
+  (prune)
+    unfunction _znav_abbrev_home 2>/dev/null || true
+    _znav_prune_missing
+    return 0
+    ;;
+
+  (compile)
+    unfunction _znav_abbrev_home 2>/dev/null || true
+    builtin zcompile -Rz -- "$ZNAV_PLUGIN_DIR/znav.plugin.zsh" || return 1
+    local _fn
+    for _fn in "$ZNAV_PLUGIN_DIR"/functions/*(.N); do
+      [[ $_fn == *.zwc ]] && continue
+      builtin zcompile -Uz -- "$_fn" || return 1
+    done
+    return 0
+    ;;
+
+  (help|-h|--help)
+    unfunction _znav_abbrev_home 2>/dev/null || true
+    builtin print -r -- "Usage: znav <subcommand> [args...]"
+    builtin print -r -- ""
+    builtin print -r -- "Subcommands:"
+    builtin print -r -- "  jump [-p] <tokens...>   Jump to highest-ranked matching directory (alias: ${ZNAV_CMD:-j})"
+    builtin print -r -- "  query [--colon] <toks>  Print resolved directory path without changing PWD"
+    builtin print -r -- "  list [-n K] [--tsv]     Display ranked directories, ~codes, Λ scores & probabilities"
+    builtin print -r -- "  explain [code|dir]      Inspect K(d) candidate lattice, tie-breakers & collisions"
+    builtin print -r -- "  stats                   Compute empirical Shannon entropy H(P) & keystroke efficiency"
+    builtin print -r -- "  seed [root ...]         Bootstrap unseen depth-1 subdirectories (default: \$HOME)"
+    builtin print -r -- "  compact                 Atomically compact append-only WAL into snapshot db.tsv"
+    builtin print -r -- "  prune                   Remove deleted directories from database & nameddirs"
+    builtin print -r -- "  compile                 Bytecode-compile plugin & autoload functions via zcompile"
+    builtin print -r -- "  init [--auto-cd]        Enable AUTO_CD + CDABLE_VARS for bare shortcode navigation"
+    return 0
+    ;;
+
+  (*)
+    unfunction _znav_abbrev_home 2>/dev/null || true
+    builtin print -u2 -r -- "znav: unknown subcommand '$_subcmd' (run 'znav help')"
+    return 1
+    ;;
+esac

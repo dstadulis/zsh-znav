@@ -1,0 +1,126 @@
+#autoload
+# _znav_directory_name — Dynamic Named Directory Hook (zsh_directory_name)
+#
+# Implements all 3 modes of Peter Stephenson's dynamic named directory protocol:
+#   n : ~[cr], ~[sr]/sub, ~[code:repo]  -> canonical directory path
+#   d : %~ prompt contraction           -> ~[code] (with UTF-8 byte-length fix)
+#   c : ~[<TAB> completion              -> ranked codes with path & weight display
+
+emulate -L zsh
+setopt extended_glob warn_create_global typeset_silent no_short_loops
+
+local _mode=${1:-}
+
+if [[ $_mode == n ]]; then
+  local _expr=${2:-}
+  [[ -z $_expr ]] && return 1
+
+  # O(1) fast path for exact top-projected shortcode without colon
+  if [[ $_expr != *:* ]] && (( _ZNAV_CACHE_VALID && _ZNAV_LAST_SCORE_COUNT == ${#_ZNAV_SCORE} && _ZNAV_LAST_AVOID_CMDS == (ZNAV_AVOID_COMMANDS ? 1 : 0) )); then
+    local _expr_l=${(L)_expr} _fast=""
+    if [[ -n ${_ZNAV_CODE2DIR[$_expr]+x} ]]; then
+      _fast=${_ZNAV_CODE2DIR[$_expr]}
+    elif [[ -n ${_ZNAV_CODE2DIR[$_expr_l]+x} ]]; then
+      _fast=${_ZNAV_CODE2DIR[$_expr_l]}
+    fi
+    if [[ -n $_fast && ( !_ZNAV_ALL_DIRTY || -n ${_ZNAV_TOP_POS[$_fast]+x} ) && -d $_fast ]]; then
+      typeset -ga reply=("$_fast")
+      return 0
+    fi
+  fi
+
+  local -a _toks=()
+  integer _has_colon=0
+  if [[ $_expr == *:* ]]; then
+    _has_colon=1
+    _toks=("${(@s.:.)_expr}")
+  else
+    _toks=("$_expr")
+  fi
+
+  if _znav_resolve $_has_colon "${_toks[@]}"; then
+    typeset -ga reply=("$REPLY")
+    return 0
+  fi
+  return 1
+
+elif [[ $_mode == d ]]; then
+  local _pstyle=${ZNAV_PROMPT_DYNAMIC:-0}
+  [[ $_pstyle == 0 || $_pstyle == never || $_pstyle == none ]] && return 1
+
+  local _path=${2:-}
+  [[ -z $_path ]] && return 1
+  _znav_ensure_full_bijection
+
+  local _best_d="" _best_code="" _d _code
+  integer _best_blen=0 _cur_blen
+
+  for _d _code in "${(@kv)_ZNAV_DIR2CODE}"; do
+    if [[ $_d == / ]]; then
+      continue
+    fi
+    if [[ $_path == $_d || $_path == $_d/* ]]; then
+      {
+        setopt localoptions no_multibyte
+        _cur_blen=${#_d}
+      }
+      if (( _cur_blen > _best_blen )); then
+        _best_blen=$_cur_blen
+        _best_d=$_d
+        _best_code=$_code
+      fi
+    fi
+  done
+
+  [[ -z $_best_d ]] && return 1
+
+  # In 'fallback' mode, let static ~code win in %~ when projected into $nameddirs.
+  if [[ $_pstyle == fallback && ${nameddirs[$_best_code]:-} == $_best_d ]]; then
+    return 1
+  fi
+
+  typeset -ga reply=("$_best_code" $_best_blen)
+  return 0
+
+elif [[ $_mode == c ]]; then
+  [[ -n ${SUFFIX:-} ]] && return 1
+  _znav_ensure_full_bijection
+  (( ${#_ZNAV_RANKED_DIRS} == 0 )) && return 1
+
+  local -a _keys=() _disp=()
+  local _d _code _pretty _esc_pretty _w_str _top_raw=${_ZNAV_SCORE[${_ZNAV_RANKED_DIRS[1]}]} _cur_raw
+  float -E 17 _hl=$ZNAV_HALF_LIFE _tau _lmax _w
+  (( _hl <= 0.0 )) && _hl=259200.0
+  (( _tau = _hl / log(2.0) ))
+  (( _lmax = _top_raw ))
+
+  for _d in "${_ZNAV_RANKED_DIRS[@]}"; do
+    [[ -d $_d ]] || continue
+    _code=${_ZNAV_DIR2CODE[$_d]:-}
+    [[ -z $_code ]] && continue
+    _cur_raw=${_ZNAV_SCORE[$_d]}
+    (( _w = exp((_cur_raw - _lmax) / _tau) ))
+    builtin printf -v _w_str '%.2f' $_w
+    _pretty=$_d
+    if [[ -n ${HOME:-} ]]; then
+      if [[ $_pretty == $HOME ]]; then
+        _pretty='~'
+      elif [[ $_pretty == $HOME/* ]]; then
+        _pretty="~/${_pretty#$HOME/}"
+      fi
+    fi
+    _pretty=${_pretty//$'\n'/\\n}
+    _esc_pretty=${_pretty//:/\\:}
+    _keys+=("$_code")
+    _disp+=("${_code}:${_esc_pretty} [rel=${_w_str}]")
+  done
+
+  (( ${#_keys} == 0 )) && return 1
+
+  local -a _suf=()
+  [[ ${ISUFFIX:-} == *\]* ]] || _suf=(-S ']')
+  _describe -V -t dynamic-dirs 'znav directory' _disp _keys "${_suf[@]}"
+  return
+fi
+
+return 1
