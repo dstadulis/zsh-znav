@@ -1,4 +1,4 @@
-#!/opt/homebrew/bin/python3
+#!/usr/bin/env python3
 r"""LCF-Style Deductive Symbolic Proof Kernel & Certificate Verifier for znav.
 
 Proves the symbolic transcendental, inductive, and order-isomorphism theorems

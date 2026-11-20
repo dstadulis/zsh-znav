@@ -1,12 +1,12 @@
 # Formal Verification & Information-Theoretic Foundations of `znav`
 
-**Executable Proof Artifacts in `/Users/username/CODE.REPOSITORIES/znav/proofs/`:**
-- [`verify_all.py`](file:///Users/username/CODE.REPOSITORIES/znav/proofs/verify_all.py) — Master verification runner executing all four machine-checked proof pillars and tamper-rejection soundness checks (`QED` exit `0`).
-- [`smt_theorems.smt2`](file:///Users/username/CODE.REPOSITORIES/znav/proofs/smt_theorems.smt2) — Standalone pure SMT-LIB2 certificate verified directly by `z3 -smt2` (`QF_NRA`, hardware-exact IEEE-754 `Float64` / `FPSort(11,53)`, and `Real × Int × Int × String` order theories).
-- [`deductive_kernel.py`](file:///Users/username/CODE.REPOSITORIES/znav/proofs/deductive_kernel.py) & [`deductive_certificates.json`](file:///Users/username/CODE.REPOSITORIES/znav/proofs/deductive_certificates.json) — Self-contained LCF-style natural-deduction, symbolic term-rewriting, and Peano induction kernel (`225` primitive inference steps, `sorry_count == 0`) with an independent certificate replay auditor.
-- [`verify_bijection_matroid.py`](file:///Users/username/CODE.REPOSITORIES/znav/proofs/verify_bijection_matroid.py) — Z3 SMT & exhaustive finite-model proofs of collision-free bijection totality, No-Hijack stability, `cdr` 100% churn contrast, lexicographic/Pareto/Hardy–Littlewood–Pólya optimality, online mechanism impossibility, and IEEE-754 ULP error bounds against an 80-digit `Decimal` oracle.
-- [`verify_info_theory.py`](file:///Users/username/CODE.REPOSITORIES/znav/proofs/verify_info_theory.py) — Z3 `QF_NRA` & String/Regex proofs of Shannon–Kraft–Gibbs bounds, delimited prefix-freeness, $\text{Zipf}(s)$ scaling ($N \in \{30, 100, 500, 2000\}$), and exact Markov MRU code-churn entropy.
-- [`znav_spec.py`](file:///Users/username/CODE.REPOSITORIES/znav/proofs/znav_spec.py) — Canonical executable reference specification and `--trace` differential conformance oracle.
+**Executable Proof Artifacts in `proofs/`:**
+- [`verify_all.py`](verify_all.py) — Master verification runner executing all four machine-checked proof pillars and tamper-rejection soundness checks (`QED` exit `0`).
+- [`smt_theorems.smt2`](smt_theorems.smt2) — Standalone pure SMT-LIB2 certificate verified directly by `z3 -smt2` (`QF_NRA`, hardware-exact IEEE-754 `Float64` / `FPSort(11,53)`, and `Real × Int × Int × String` order theories).
+- [`deductive_kernel.py`](deductive_kernel.py) & [`deductive_certificates.json`](deductive_certificates.json) — Self-contained LCF-style natural-deduction, symbolic term-rewriting, and Peano induction kernel (`225` primitive inference steps, `sorry_count == 0`) with an independent certificate replay auditor.
+- [`verify_bijection_matroid.py`](verify_bijection_matroid.py) — Z3 SMT & exhaustive finite-model proofs of collision-free bijection totality, No-Hijack stability, `cdr` 100% churn contrast, lexicographic/Pareto/Hardy–Littlewood–Pólya optimality, online mechanism impossibility, and IEEE-754 ULP error bounds against an 80-digit `Decimal` oracle.
+- [`verify_info_theory.py`](verify_info_theory.py) — Z3 `QF_NRA` & String/Regex proofs of Shannon–Kraft–Gibbs bounds, delimited prefix-freeness, $\text{Zipf}(s)$ scaling ($N \in \{30, 100, 500, 2000\}$), and exact Markov MRU code-churn entropy.
+- [`znav_spec.py`](znav_spec.py) — Canonical executable reference specification and `--trace` differential conformance oracle.
 
 ---
 
@@ -87,7 +87,7 @@ For a sequence of visits $(t_1, \dots, t_m)$ to directory $d$:
 *For every $\tau > 0$, every $m \ge 1$, every (not necessarily monotonic!) sequence of real timestamps $(t_1, \dots, t_m) \in \mathbb{R}^m$, and every evaluation time $t \in \mathbb{R}$:*
 $$\exp\!\left(\frac{\Lambda_d^{(m)} - t}{\tau}\right) = \sum_{k=1}^{m} \exp\!\left(-\frac{t - t_k}{\tau}\right) = S_d(t).$$
 
-*Proof (Machine-checked constructively in [`deductive_kernel.py`](file:///Users/username/CODE.REPOSITORIES/znav/proofs/deductive_kernel.py) via `NatInductionGe1` + `CaseSplitOrder`, and in [`smt_theorems.smt2`](file:///Users/username/CODE.REPOSITORIES/znav/proofs/smt_theorems.smt2) `[1a.1]`).*
+*Proof (Machine-checked constructively in [`deductive_kernel.py`](deductive_kernel.py) via `NatInductionGe1` + `CaseSplitOrder`, and in [`smt_theorems.smt2`](smt_theorems.smt2) `[1a.1]`).*
 We proceed by induction on $m \ge 1$.
 
 - **Base Case ($m = 1$):** By definition, $\Lambda_d^{(1)} = t_1$. Using $t_1 - t = -(t - t_1)$:
@@ -310,21 +310,21 @@ Grounded in the workspace naming corpus (`/Users/username/CODE.REPOSITORIES`, `/
 Run the complete verification suite in a single command (zero network access, zero external wrappers):
 
 ```zsh
-/opt/homebrew/bin/python3 /Users/username/CODE.REPOSITORIES/znav/proofs/verify_all.py
+python3 proofs/verify_all.py
 ```
 
 Or run any individual proof pillar directly:
 
 ```zsh
 # 1. Pure Z3 SMT-LIB2 certificate (QF_NRA + IEEE-754 Float64 + String/Order)
-/opt/homebrew/bin/z3 -smt2 /Users/username/CODE.REPOSITORIES/znav/proofs/smt_theorems.smt2
+z3 -smt2 proofs/smt_theorems.smt2
 
 # 2. LCF Deductive Symbolic Proof Kernel & Certificate Replay Auditor (225 steps, 0 sorrys)
-/opt/homebrew/bin/python3 /Users/username/CODE.REPOSITORIES/znav/proofs/deductive_kernel.py
+python3 proofs/deductive_kernel.py
 
 # 3. Z3 Bijection, No-Hijack, Lexicographic/Pareto/HLP & Online Impossibility Suite
-/opt/homebrew/bin/python3 /Users/username/CODE.REPOSITORIES/znav/proofs/verify_bijection_matroid.py
+python3 proofs/verify_bijection_matroid.py
 
 # 4. Z3 Shannon-Kraft-Gibbs, Delimited Prefix-Free & Zipf(s=1.2) Scaling Suite
-/opt/homebrew/bin/python3 /Users/username/CODE.REPOSITORIES/znav/proofs/verify_info_theory.py
+python3 proofs/verify_info_theory.py
 ```

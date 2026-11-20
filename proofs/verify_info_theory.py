@@ -1,4 +1,4 @@
-#!/opt/homebrew/bin/python3
+#!/usr/bin/env python3
 r"""Formal Verification of Primitive 3: Information-Theoretic Bounds, Zipf(s)
 Asymptotics, and Total Navigation Cost (Query + Maintenance + Churn + I/O).
 

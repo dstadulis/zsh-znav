@@ -1,4 +1,4 @@
-#!/opt/homebrew/bin/python3
+#!/usr/bin/env python3
 """Master Formal Verification Suite for znav (`proofs/verify_all.py`).
 
 Executes and cross-checks all formal methods pillars:

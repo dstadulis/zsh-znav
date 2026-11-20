@@ -75,10 +75,18 @@ def main() -> int:
             "SCRIPT.REPOS/deploy",
             "DESIGN.AESTHETICS",
             "FORMAL.PROOFS",
+            "GIT.STATUS",
             "My Spaces.Repo",
             "dir[1]*?(glob)",
         ]:
             (home_dir / d).mkdir(parents=True, exist_ok=True)
+
+        cdr_file = tmp / "chpwd-recent-dirs"
+        cdr_file.write_text(
+            f"$'{home_dir}/CODE.REPOSITORIES'\n"
+            f"$'{home_dir}/My Spaces.Repo'\n",
+            encoding="utf-8",
+        )
 
         env = {
             "HOME": str(home_dir),
@@ -171,6 +179,16 @@ def main() -> int:
 
             run_step("znav_seed_empty_PATH", f'znav seed {str(home_dir)!r}')
             run_step(
+                "precmd_once_alias_guard_empty_PATH",
+                'alias gs="git status"; '
+                'add-zsh-hook precmd _znav_precmd_once; '
+                '_znav_precmd_once && '
+                '(( ! ${precmd_functions[(Ie)_znav_precmd_once]:-0} )) && '
+                '(( ! $+nameddirs[gs] )) && '
+                '[[ ~gis == */GIT.STATUS ]] && '
+                'unalias gs',
+            )
+            run_step(
                 "chpwd_20_transitions_empty_PATH",
                 f'repeat 10 {{ cd {str(home_dir / "CODE.REPOSITORIES")!r}; cd {str(home_dir / "SCRIPT.REPOS")!r}; }}',
             )
@@ -198,6 +216,7 @@ def main() -> int:
             run_step("znav_explain_cr_empty_PATH", "znav explain cr >/dev/null")
             run_step("znav_stats_empty_PATH", "znav stats >/dev/null")
             run_step("znav_compact_atomic_empty_PATH", "znav compact")
+            run_step("znav_import_cdr_empty_PATH", f"znav import --cdr --file {str(cdr_file)!r}")
             run_step("znav_prune_empty_PATH", "znav prune")
 
             # Positive control: prove that even a single empty command substitution `$(:)`

@@ -1,20 +1,20 @@
-# `znav` — Formally Verified, Zero-Fork Directory Navigation for Zsh
+# `zsh-znav` — Formally Verified, Zero-Fork Directory Navigation for Zsh
 
-`znav` replaces manually curated directory aliases (`alias cr='cd ~/CODE.REPOSITORIES'`, `alias sr='cd ~/SCRIPT.REPOS'`) with an **information-theoretically grounded, machine-checked, 100% pure-Zsh navigation engine** built directly atop Zsh's C hash tables and hook protocols.
+`zsh-znav` (`znav` & `j`) replaces manually curated directory aliases (`alias cr='cd ~/CODE.REPOSITORIES'`, `alias sr='cd ~/SCRIPT.REPOS'`) with an **information-theoretically grounded, machine-checked, 100% pure-Zsh navigation engine** built directly atop Zsh's C hash tables and hook protocols.
 
-Every hot path—startup, `chpwd` tracking, `~cr` C hash-table expansion, `~[cr]` dynamic resolution, `j cr` jumping, `~[<TAB>` completion, and atomic WAL compaction—executes **100% in-process in pure Zsh (`0` `fork(2)` calls, `0` subshells, `0` external binaries, even under `PATH=""`)**.
+Every hot path—startup, `chpwd` tracking, one-shot `precmd` alias protection, `~cr` C hash-table expansion, `~[cr]` dynamic resolution, `j cr` jumping, `~[<TAB>` completion, `cdr` import, and atomic WAL compaction—executes **100% in-process in pure Zsh (`0` `fork(2)` calls, `0` subshells, `0` external binaries, even under `PATH=""`)**.
 
 ---
 
-## Why Manual Aliases Fail—and How `znav` Integrates Natively
+## Why Manual Aliases Fail—and How `zsh-znav` Integrates Natively
 
 Manual aliases (`alias cr='cd ~/CODE.REPOSITORIES'`) suffer from four structural defects:
-1. **Lexical confinement to command position**: You cannot write `vim cr/foo`, `cp a sr/b`, or `git -C cr/znav status` (`alias -g` globally corrupts ordinary arguments across every command).
+1. **Lexical confinement to command position**: You cannot write `vim cr/foo`, `cp a sr/b`, or `git -C cr/zsh-znav status` (`alias -g` globally corrupts ordinary arguments across every command).
 2. **$\Omega(N \cdot L_{\text{path}})$ human maintenance & silent staleness**: Every new, renamed, or deleted repository requires manual dotfile surgery.
-3. **Silent command-table shadowing**: Two-letter initialisms like `tr` (`TEMP.REPOS`), `pr` (`PUBLIC.REPOS`), `ar`, `cc`, `ls`, or `cp` collide with POSIX `/usr/bin` utilities and shell builtins.
+3. **Silent command-table shadowing**: Two-letter initialisms like `tr` (`TEMP.REPOS`), `pr` (`PUBLIC.REPOS`), `ar`, `cc`, `ls`, or `cp` collide with POSIX `/usr/bin` utilities, shell builtins, or personal aliases (`gs`, `lg`).
 4. **Zero prompt `%~` or completion awareness**.
 
-| Capability / Complexity | Manual `alias` | Static `hash -d` | Zsh `cdr` (`zshcontrib`) | External (`zoxide`) | **`znav` (Pure Zsh)** |
+| Capability / Complexity | Manual `alias` | Static `hash -d` | Zsh `cdr` (`zshcontrib`) | External (`zoxide`) | **`zsh-znav` (Pure Zsh)** |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Human Maintenance Cost** | $\Omega(N)$ manual edits | $\Omega(N)$ manual edits | $0$ bits | $0$ bits | **$0$ bits (auto-seeded Day 0)** |
 | **`chpwd` Compute & Disk I/O** | — | — | $O(N)$ slurp + full rewrite | $2$ forks + $1$ `exec` | **$O(1)$ RAM + $1$-line WAL append** |
@@ -24,44 +24,93 @@ Manual aliases (`alias cr='cd ~/CODE.REPOSITORIES'`) suffer from four structural
 | **Ranking Model** | Static | Static | Pure MRU stack | Aging-rescaled frecency | **Exact Log-Epoch Frecency ($\oplus_\tau$)** |
 | **Code Stability (No-Hijack)** | Manual | Manual | **0%** (`~[1]` shifts every `cd`) | Unstable prefix ties | **Proven No-Hijack Stability** |
 
-For a deep line-by-line audit of Zsh 5.9's built-in mechanisms (`$nameddirs`, `CDABLE_VARS`, `zsh_directory_name`, `cdr`, `chpwd_recent_dirs`), see [zsh_native_audit.md](file:///Users/username/CODE.REPOSITORIES/znav/docs/zsh_native_audit.md). For full formal proofs and executable verification certificates, see [formal_proofs.md](file:///Users/username/CODE.REPOSITORIES/znav/proofs/formal_proofs.md).
+For a deep line-by-line audit of Zsh 5.9's built-in mechanisms (`$nameddirs`, `CDABLE_VARS`, `zsh_directory_name`, `cdr`, `chpwd_recent_dirs`), see [docs/zsh_native_audit.md](docs/zsh_native_audit.md). For full formal proofs and executable verification certificates, see [proofs/formal_proofs.md](proofs/formal_proofs.md).
+
+---
+
+## Installation
+
+### Local Clone + Symlink Installer (Recommended for Oh My Zsh)
+
+```sh
+git clone https://github.com/dstadulis/zsh-znav.git
+cd zsh-znav
+./install.sh          # Links into $ZSH_CUSTOM/plugins/zsh-znav (default with Oh My Zsh), compiles .zwc, and seeds $HOME depth-1
+```
+
+Then add `zsh-znav` to `plugins=(...)` in `~/.zshrc` (before `zsh-autosuggestions` if present) and reload your shell (`exec zsh`).
+
+Installer flags (`./install.sh --help`):
+- `--omz-plugin`: Link `$ZSH_CUSTOM/plugins/zsh-znav/{zsh-znav.plugin.zsh,_znav}` so Oh My Zsh's pre-`compinit` `$fpath` registers `_znav` in a single pass *(default when Oh My Zsh is present)*.
+- `--omz-custom`: Link directly into `$ZSH_CUSTOM/zsh-znav.zsh` and `$ZSH_CUSTOM/completions/_znav`.
+- `--zsh-dir <dir>`: Link autoload functions into `<dir>` (fallback default: `~/.local/share/zsh/site-functions`).
+- `--import-zoxide`: Seed initial frecency scores from `zoxide query -ls` during installation.
+- `--no-compile`: Skip compiling `.zwc` wordcode files.
+- `--dry-run`: Preview actions without modifying the filesystem.
+
+Run `./uninstall.sh` at any time to remove installed symlinks and `.zwc` wordcode cleanly (`--purge-data` to also remove `$ZNAV_DATA_DIR`).
+
+### Zsh Plugin Managers
+
+- **Oh My Zsh** (direct custom plugin clone):
+  ```zsh
+  git clone https://github.com/dstadulis/zsh-znav.git "${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-znav"
+  # Add `zsh-znav` to plugins=(...) in ~/.zshrc
+  ```
+- **Antidote** (`~/.zsh_plugins.txt`):
+  ```text
+  dstadulis/zsh-znav
+  ```
+- **Zinit** (`~/.zshrc`):
+  ```zsh
+  zinit light dstadulis/zsh-znav
+  ```
+- **Sheldon** (`~/.config/sheldon/plugins.toml`):
+  ```toml
+  [plugins.zsh-znav]
+  github = "dstadulis/zsh-znav"
+  ```
+- **Znap** (`~/.zshrc`):
+  ```zsh
+  znap source dstadulis/zsh-znav
+  ```
+- **Direct Source** (no plugin manager):
+  ```zsh
+  source /path/to/zsh-znav/zsh-znav.plugin.zsh
+  setopt AUTO_CD   # Oh My Zsh enables AUTO_CD automatically; CDABLE_VARS is enabled by default via ZNAV_CDABLE_VARS=1
+  ```
 
 ---
 
 ## Quickstart
 
-Source [znav.plugin.zsh](file:///Users/username/CODE.REPOSITORIES/znav/znav.plugin.zsh) in `~/.zshrc`:
-
-```zsh
-source /path/to/znav/znav.plugin.zsh
-
-# Optional: enable zero-wrapper bare shortcode navigation (`cr` + Enter -> ~/CODE.REPOSITORIES)
-znav init --auto-cd
-```
-
 On **Day 0** (when the database is empty), `znav` automatically scans immediate subdirectories of `$HOME` at baseline Log-Epoch weight $0.5$ ($\Lambda_d = t_0 - H$). Without configuring a single alias:
 
 ```zsh
 # 1. Static C Hash-Table Named Directories (`hash -d`) — works in EVERY argument!
-vim ~cr/znav/README.md
+vim ~cr/zsh-znav/README.md
 diff -u ~cr/project/a.zsh ~sr/deploy/a.zsh
-git -C ~cr/znav status
+git -C ~cr/zsh-znav status
 
-# 2. Bare Shortcode Navigation (with `znav init --auto-cd` -> AUTO_CD + CDABLE_VARS)
+# 2. Bare Shortcode Navigation (`AUTO_CD` + default `ZNAV_CDABLE_VARS=1`)
 cr                      # changes directly into ~/CODE.REPOSITORIES (0 wrapper overhead!)
 sr                      # changes directly into ~/SCRIPT.REPOS
 
 # 3. Dynamic Named Directories (`zsh_directory_name` protocol)
-cd ~[cr]/znav           # exact shortcode + subpath
+cd ~[cr]/zsh-znav       # exact shortcode + subpath
 ls ~[code:repo]         # multi-token ordered substring resolution
 cd ~[<TAB>              # live ranked completion with relative frecency weights
 
 # 4. Ergonomic `j` / `znav` CLI + Subpath Jumping
 j cr                    # jump to ~/CODE.REPOSITORIES
-j cr znav               # jump directly to ~/CODE.REPOSITORIES/znav (or `j cr/znav`)
+j cr zsh-znav           # jump directly to ~/CODE.REPOSITORIES/zsh-znav (or `j cr/zsh-znav`)
 j -l                    # aligned table of ~codes, Λ scores, weights, P(d), paths
 znav explain cr         # inspect candidate lattice K(d) & collision/reservation reasons
 znav stats              # empirical Shannon entropy H(P) vs actual keystroke cost
+
+# 5. Optional History Migration (from zoxide or Zsh built-in cdr)
+znav import --zoxide    # exact Log-Epoch mapping Λ_d = t_now + τ ln(S_d)
+znav import --cdr       # pure-Zsh import of ~/.chpwd-recent-dirs
 ```
 
 ---
@@ -87,7 +136,7 @@ Each canonical path $d$ (`${dir:A}`) is ranked under strict total order $\succ$ 
 
 Assigning each directory in descending $\succ$ order its earliest candidate outside reserved set $R$ yields a **priority-optimal injection** $\phi: \mathcal{D} \hookrightarrow \Sigma^+ \setminus R$:
 - **No-Hijack Theorem**: Creating or visiting a lower-ranked colliding directory (`~/CACHE.REPOS`) **never** alters `~cr` (`~/CODE.REPOSITORIES`); `CACHE.REPOS` automatically receives `~car`.
-- **Namespace & Command-Shadowing Safety**: `znav` tracks its own `hash -d` entries in `_ZNAV_OWNED_NAMEDDIRS`, probes macOS OpenDirectory users via zero-fork tilde expansion (`~root`, `~daemon`, `~$USER`—critical on macOS where `${#userdirs} == 0`), preserves manual `hash -d` entries, and reserves `$commands`, `$builtins`, `$functions`, `$aliases`, and `$reswords` (`TEMP.REPOS` skips `/usr/bin/tr` $\to$ receives `~ter`, so bare `ter` jumps cleanly while `tr` remains unshadowed!).
+- **Namespace, Command & Post-`.zshrc` Alias Safety**: `znav` tracks its own `hash -d` entries in `_ZNAV_OWNED_NAMEDDIRS`, probes macOS OpenDirectory users via zero-fork tilde expansion (`~root`, `~daemon`, `~$USER`), preserves manual `hash -d` entries, and reserves `$commands`, `$builtins`, `$functions`, `$aliases`, and `$reswords` (`TEMP.REPOS` skips `/usr/bin/tr` $\to$ receives `~ter`). Because plugin managers like Oh My Zsh load plugins *before* user aliases (`gs`, `lg`, etc.) at the bottom of `~/.zshrc`, a one-shot `precmd` guard (`_znav_precmd_once`) runs once before the first prompt, unregisters itself (`0` ongoing overhead), and re-projects any shortcode newly claimed by late `.zshrc` aliases or functions (`0` forks).
 
 ### 3. $O(1)$-in-$N$ Incremental `chpwd` & Commutative Multi-Shell WAL Compaction
 - **$O(1)$ Top-$M$ Maintenance**: By Time-Translation Order Invariance, visiting directory $d$ can only increase $\Lambda_d$; relative order among all other $N - 1$ directories is invariant. `_znav_sync_visit` checks $d$ against its predecessor in `_ZNAV_TOP_DIRS` (or the $M$-th threshold guardian) in $O(1)$ time independent of total database size $N$, updating only affected ranks $\ge \text{new\_pos}$ by No-Hijack Prefix Stability.
@@ -97,18 +146,19 @@ Assigning each directory in descending $\succ$ order its earliest candidate outs
 
 ## CLI & Configuration Reference
 
-### Commands ([functions/znav](file:///Users/username/CODE.REPOSITORIES/znav/functions/znav))
+### Commands ([functions/znav](functions/znav))
 | Command | Description |
 | :--- | :--- |
-| `j <tokens...>` / `znav jump [-p] <tokens...>` | Jump to winning directory (supports subpaths: `j cr znav`, `j cr/znav`, `-p` to print path) |
+| `j <tokens...>` / `znav jump [-p] <tokens...>` | Jump to winning directory (supports subpaths: `j cr zsh-znav`, `j cr/zsh-znav`, `-p` to print path) |
 | `znav query [--colon] <tokens...>` | Resolve query `resolve(Q)` to stdout without changing `$PWD` |
 | `j -l` / `znav list [-n K] [--tsv]` | Display ranked table of `~code`, `~[code]`, $\Lambda$, decayed weight, $P(d)$, and path |
 | `j -e <code\|dir>` / `znav explain [code\|dir]` | Inspect $K(d)$ candidate lattice and exact reason any earlier candidate was skipped |
 | `j -s` / `znav stats` | Compute empirical Shannon entropy $H_2(P)$, $H_{37}(P)$ bound, and keystroke savings |
 | `znav seed [root ...]` | Seed unseen depth-1 subdirectories (default: `$HOME`) at $\Lambda = t_0 - H$ |
+| `znav import [--zoxide \| --cdr [--file <p>]]` | Import directory history from `zoxide query -ls` or Zsh `cdr` (`.chpwd-recent-dirs`) |
 | `znav compact` | Force atomic multi-shell WAL compaction into `db.tsv` |
 | `znav prune` | Prune deleted directories from database and unhash stale `hash -d` entries |
-| `znav compile` | Bytecode-compile `znav.plugin.zsh` and `functions/*` into `.zwc` files via `zcompile` |
+| `znav compile` | Bytecode-compile plugin files and `functions/*` into `.zwc` wordcode via `zcompile` |
 | `znav init [--auto-cd] [--no-cmd]` | Enable `AUTO_CD` + `CDABLE_VARS` and/or disable the wrapper command |
 
 ### Environment / Shell Parameters
@@ -118,6 +168,7 @@ Assigning each directory in descending $\succ$ order its earliest candidate outs
 | `ZNAV_HALF_LIFE` | `259200.0` (72 hours) | Exponential frecency half-life $H$ in seconds ($\tau = H / \ln 2$) |
 | `ZNAV_MAX_NAMEDDIRS` | `256` | Maximum top-ranked directories projected into static `hash -d` |
 | `ZNAV_AVOID_COMMANDS` | `1` | Reserve `$commands`/`$builtins`/`$functions`/`$aliases`/`$reswords` for safe `AUTO_CD` |
+| `ZNAV_CDABLE_VARS` | `1` | Enable `CDABLE_VARS` on plugin load (`0` to leave caller's `CDABLE_VARS` untouched) |
 | `ZNAV_CMD` | `j` | Jump command name (`none` or `""` to disable wrapper function) |
 | `ZNAV_PROMPT_DYNAMIC` | `0` | `%~` mode `d` contraction: `0` (clean / static `~cr`), `1` (`~[cr]`), `fallback` |
 | `ZNAV_AUTO_SEED` | `1` | Automatically seed `$HOME` depth-1 subdirectories when database is empty |
@@ -140,3 +191,9 @@ Assigning each directory in descending $\succ$ order its earliest candidate outs
   ```zsh
   zsh benchmarks/run_bench.zsh
   ```
+
+---
+
+## License
+
+Released under the [MIT License](LICENSE).

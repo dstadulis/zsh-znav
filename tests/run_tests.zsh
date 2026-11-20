@@ -12,6 +12,9 @@
 #   7. 6-Way Concurrent Multi-Shell WAL Merge & Bounded Atomic Compaction
 #   8. `zcompile` Bytecode Compilation & Execution Compatibility
 #   9. 600+ Operation Differential Randomized Trace Conformance (`diff_conformance.py`)
+#  10. Shell Ergonomics (`ZNAV_CDABLE_VARS=1`/`0` & `_znav_precmd_once` Post-`.zshrc` Guard)
+#  11. Migration Importers (`znav import --zoxide` Mock & `znav import --cdr` Pure Zsh)
+#  12. Hermetic Packaging & Installer (`zsh-znav.plugin.zsh`, `install.sh`, `uninstall.sh`)
 # ==============================================================================
 
 emulate -L zsh
@@ -697,6 +700,269 @@ if command -v python3 >/dev/null 2>&1; then
 else
   fail "python3 unavailable for differential trace conformance"
 fi
+
+# ==============================================================================
+# SUITE 10: Shell Ergonomics (ZNAV_CDABLE_VARS=1/0 & _znav_precmd_once Guard)
+# ==============================================================================
+print -r -- "\n--- Suite 10: ZNAV_CDABLE_VARS Ergonomics & Post-.zshrc Alias Guard ---"
+() {
+  local sb="$SANDBOX_ROOT/s10_ergonomics"
+  zf_mkdir -p "$sb/home/CODE.REPOSITORIES" "$sb/home/SCRIPT.REPOS" "$sb/home/GIT.STATUS" "$sb/home/LAZY.GIT" "$sb/home/LAZY.GIT.STATUS" "$sb/data1" "$sb/data2" "$sb/data3"
+  local exp_home=${${:-$sb/home}:A}
+  local entry_plugin="$REPO_ROOT/zsh-znav.plugin.zsh"
+
+  # 10a. Default ZNAV_CDABLE_VARS=1 sets CDABLE_VARS in caller scope -> bare cr/sr work with AUTO_CD alone!
+  local cdv_on
+  cdv_on=$(HOME="$sb/home" ZNAV_DATA_DIR="$sb/data1" LC_ALL=C TERM=dumb \
+    /bin/zsh -dfis +Z +m <<EOF 2>/dev/null
+PROMPT="" RPROMPT="" PS1="" PS2=""
+setopt NO_PROMPT_SP AUTO_CD
+unsetopt CDABLE_VARS
+zmodload zsh/parameter
+source ${(q)entry_plugin} || exit 11
+print -r -- "CDABLE_DEFAULT:\${options[cdablevars]}"
+cr
+print -r -- "BARE_DEFAULT_CR:\$PWD"
+sr
+print -r -- "BARE_DEFAULT_SR:\$PWD"
+exit 0
+EOF
+  )
+  assert_true $? "Default ZNAV_CDABLE_VARS=1 shell exited 0"
+  [[ $cdv_on == *"CDABLE_DEFAULT:on"* ]] && pass "ZNAV_CDABLE_VARS=1 (default) enables CDABLE_VARS in caller scope" || fail "ZNAV_CDABLE_VARS=1 failed: $cdv_on"
+  [[ $cdv_on == *"BARE_DEFAULT_CR:$exp_home/CODE.REPOSITORIES"* && $cdv_on == *"BARE_DEFAULT_SR:$exp_home/SCRIPT.REPOS"* ]] \
+    && pass "Bare 'cr' and 'sr' jump immediately under Oh My Zsh AUTO_CD without manual setopt" \
+    || fail "Bare cr/sr with default ZNAV_CDABLE_VARS=1 failed: $cdv_on"
+
+  # 10b. Opt-out ZNAV_CDABLE_VARS=0 preserves caller's unset CDABLE_VARS and exits 0!
+  local cdv_off
+  cdv_off=$(HOME="$sb/home" ZNAV_DATA_DIR="$sb/data2" ZNAV_CDABLE_VARS=0 LC_ALL=C TERM=dumb \
+    /bin/zsh -dfi +Z +m -c '
+      PROMPT="" RPROMPT=""
+      zmodload zsh/parameter
+      unsetopt CDABLE_VARS
+      source '"${(q)entry_plugin}"' || exit 12
+      print -r -- "CDABLE_OPTOUT:${options[cdablevars]}"
+    ' 2>&1)
+  assert_true $? "ZNAV_CDABLE_VARS=0 source exited 0"
+  [[ $cdv_off == *"CDABLE_OPTOUT:off"* ]] && pass "ZNAV_CDABLE_VARS=0 preserves CDABLE_VARS=off in option-preservation mode" || fail "ZNAV_CDABLE_VARS=0 leaked CDABLE_VARS: $cdv_off"
+
+  # 10c. _znav_precmd_once post-.zshrc alias collision guard (simulating OMZ line 88 vs aliases lines 126-140)
+  cat > "$sb/sim_zshrc" <<EOF
+PROMPT="" RPROMPT="" PS1="" PS2=""
+setopt NO_PROMPT_SP AUTO_CD
+zmodload zsh/parameter
+source ${(q)entry_plugin} || exit 13
+print -r -- "PRE_HOOK:\${precmd_functions[(Ie)_znav_precmd_once]:-0}:PRE_GS:\${nameddirs[gs]:-none}:PRE_LG:\${nameddirs[lg]:-none}"
+alias gs="git status"
+alias lg="lazygit"
+alias lgs="lazygit status"
+EOF
+  local precmd_out
+  precmd_out=$(HOME="$sb/home" ZNAV_DATA_DIR="$sb/data3" LC_ALL=C TERM=dumb \
+    /bin/zsh -dfis +Z +m <<EOF 2>/dev/null
+source ${(q)sb}/sim_zshrc
+print -r -- "POST_HOOK:\${precmd_functions[(Ie)_znav_precmd_once]:-0}:POST_GS:\${+nameddirs[gs]}:POST_LG:\${+nameddirs[lg]}:POST_LGS:\${+nameddirs[lgs]}"
+print -r -- "ALIASES:\${aliases[gs]}|\${aliases[lg]}|\${aliases[lgs]}"
+print -r -- "REASSIGNED:\${nameddirs[gis]:-}|\${nameddirs[lag]:-}|\${nameddirs[cr]:-}|\${nameddirs[sr]:-}"
+exit 0
+EOF
+  )
+  assert_true $? "_znav_precmd_once interactive prompt shell exited 0"
+  [[ $precmd_out == *"PRE_HOOK:"[1-9]*":PRE_GS:$exp_home/GIT.STATUS:PRE_LG:$exp_home/LAZY.GIT"* ]] \
+    && pass "_znav_precmd_once armed at load when pre-alias initialisms claim ~gs and ~lg" \
+    || fail "Pre-prompt hook state unexpected: $precmd_out"
+  [[ $precmd_out == *"POST_HOOK:0:POST_GS:0:POST_LG:0:POST_LGS:0"* ]] \
+    && pass "_znav_precmd_once unregisters itself on first prompt (0 overhead thereafter) and evicts gs/lg/lgs from \$nameddirs" \
+    || fail "Post-prompt hook/eviction failed: $precmd_out"
+  [[ $precmd_out == *"ALIASES:git status|lazygit|lazygit status"* ]] \
+    && pass "Post-OMZ personal aliases (gs, lg, lgs) remain 100% intact" \
+    || fail "Personal aliases corrupted: $precmd_out"
+  [[ $precmd_out == *"REASSIGNED:$exp_home/GIT.STATUS|$exp_home/LAZY.GIT|$exp_home/CODE.REPOSITORIES|$exp_home/SCRIPT.REPOS"* ]] \
+    && pass "Colliding directories seamlessly re-projected to ~gis and ~lag while ~cr and ~sr stay invariant" \
+    || fail "Re-projection after alias collision failed: $precmd_out"
+}
+
+# ==============================================================================
+# SUITE 11: Migration Importers (`znav import --zoxide` & `znav import --cdr`)
+# ==============================================================================
+print -r -- "\n--- Suite 11: Migration Importers (zoxide & cdr) ---"
+() {
+  local sb="$SANDBOX_ROOT/s11_import"
+  zf_mkdir -p "$sb/bin" "$sb/home/CODE.REPOSITORIES/zsh-znav" "$sb/home/My Spaced.Project" "$sb/home/REAL.DIR" \
+              "$sb/home/CDR.FIRST" "$sb/home/CDR Spaced 'Quote'.Dir" "$sb/data_zo" "$sb/data_cdr"
+  local exp_home=${${:-$sb/home}:A}
+  /bin/ln -s "$exp_home/REAL.DIR" "$sb/home/SYM.LINK"
+
+  # Create hermetic mock `zoxide` binary
+  cat > "$sb/bin/zoxide" <<EOF
+#!/bin/zsh -f
+if [[ "\$1" == "query" && "\$2" == "-ls" ]]; then
+  print -r -- "  25.5 $exp_home/CODE.REPOSITORIES/zsh-znav"
+  print -r -- "   8.0 $exp_home/My Spaced.Project"
+  print -r -- "   4.0 $sb/home/SYM.LINK"
+  print -r -- "   6.0 $exp_home/REAL.DIR"
+  print -r -- "  99.0 $exp_home/DELETED.GHOST"
+  exit 0
+fi
+exit 1
+EOF
+  /bin/chmod +x "$sb/bin/zoxide"
+
+  # 11a. Test `znav import --zoxide` exact Log-Epoch mapping + persistence
+  local zo_out
+  zo_out=$(HOME="$sb/home" ZNAV_DATA_DIR="$sb/data_zo" ZNAV_AUTO_SEED=0 ZNAV_NOW="1700050000.0" \
+    PATH="$sb/bin:/usr/bin:/bin" LC_ALL=C TERM=dumb \
+    /bin/zsh -dfi +Z +m -c '
+      PROMPT="" RPROMPT=""
+      zmodload zsh/mathfunc
+      source "$1" || exit 11
+      znav import --zoxide || exit 12
+      local k1="$2/CODE.REPOSITORIES/zsh-znav"
+      local k2="$2/REAL.DIR"
+      local k3="$2/My Spaced.Project"
+      local kg="$2/DELETED.GHOST"
+      float -E 17 tnow=1700050000.0 tau=$(( 259200.0 / log(2.0) ))
+      float -E 17 exp1=$(( tnow + tau * log(25.5) ))
+      float -E 17 exp2=$(( tnow + tau * log(10.0) ))
+      float -E 17 exp3=$(( tnow + tau * log(8.0) ))
+      float -E 17 got1=${_ZNAV_SCORE[$k1]}
+      float -E 17 got2=${_ZNAV_SCORE[$k2]}
+      float -E 17 got3=${_ZNAV_SCORE[$k3]}
+      (( abs(got1 - exp1) < 1e-7 && abs(got2 - exp2) < 1e-7 && abs(got3 - exp3) < 1e-7 )) || {
+        print -r -- "DRIFT:$got1/$exp1|$got2/$exp2|$got3/$exp3"
+        exit 13
+      }
+      (( ! ${+_ZNAV_SCORE[$kg]} )) || exit 14
+      print -r -- "ZO_IMPORT_OK:${nameddirs[zz]:-}|${nameddirs[rd]:-}|${nameddirs[msp]:-}"
+    ' _ "$PLUGIN_FILE" "$exp_home" 2>&1)
+  assert_true $? "znav import --zoxide exited 0"
+  [[ $zo_out == *"ZO_IMPORT_OK:$exp_home/CODE.REPOSITORIES/zsh-znav|$exp_home/REAL.DIR|$exp_home/My Spaced.Project"* ]] \
+    && pass "znav import --zoxide maps S_d -> t_now + tau*ln(S_d), folds symlinks (4+6=10), skips ghosts, and projects ~codes" \
+    || fail "znav import --zoxide mismatch: $zo_out"
+
+  # Reload in fresh shell to verify compacted db.tsv snapshot
+  local zo_reload
+  zo_reload=$(HOME="$sb/home" ZNAV_DATA_DIR="$sb/data_zo" ZNAV_AUTO_SEED=0 LC_ALL=C TERM=dumb \
+    /bin/zsh -dfi +Z +m -c '
+      PROMPT="" RPROMPT=""
+      source "$1" || exit 1
+      local p=~zz
+      print -r -- "RELOAD_ZO:$p"
+    ' _ "$PLUGIN_FILE")
+  [[ $zo_reload == *"RELOAD_ZO:$exp_home/CODE.REPOSITORIES/zsh-znav"* ]] \
+    && pass "znav import --zoxide persists cleanly across shell restarts via compacted db.tsv" \
+    || fail "znav import --zoxide reload failed: $zo_reload"
+
+  # 11b. Test `znav import --cdr` in pure Zsh (PATH="" zero-fork!) with (qqqq)-quoted file
+  local cdr_file="$sb/home/.chpwd-recent-dirs"
+  local -a cdr_entries=(
+    "$exp_home/CDR.FIRST"
+    "$exp_home/CDR Spaced 'Quote'.Dir"
+    "$sb/home/SYM.LINK"
+    "$exp_home/REAL.DIR"
+    "$exp_home/MISSING.CDR"
+  )
+  print -rl -- "${(@qqqq)cdr_entries}" > "$cdr_file"
+
+  local cdr_out
+  cdr_out=$(ZDOTDIR="" HOME="$sb/home" ZNAV_DATA_DIR="$sb/data_cdr" ZNAV_AUTO_SEED=0 ZNAV_NOW="1700060000.0" \
+    LC_ALL=C TERM=dumb \
+    /bin/zsh -dfi +Z +m -c '
+      PROMPT="" RPROMPT=""
+      source "$1" || exit 21
+      PATH=""
+      znav import --cdr || exit 22
+      local c0="$2/CDR.FIRST"
+      local c1="$2/CDR Spaced '\''Quote'\''.Dir"
+      local c2="$2/REAL.DIR"
+      float -E 17 s0=${_ZNAV_SCORE[$c0]}
+      float -E 17 s1=${_ZNAV_SCORE[$c1]}
+      float -E 17 s2=${_ZNAV_SCORE[$c2]}
+      (( abs(s0 - 1700060000.0) < 1e-7 && abs(s1 - 1700059940.0) < 1e-7 && abs(s2 - 1700059880.0) < 1e-7 )) || {
+        print -r -- "CDR_DRIFT:$s0|$s1|$s2"
+        exit 23
+      }
+      (( ${#_ZNAV_SCORE} == 3 )) || { print -r -- "CDR_COUNT:${#_ZNAV_SCORE}"; exit 24; }
+      print -r -- "CDR_OK:${_ZNAV_RANKED_DIRS[1]}|${_ZNAV_RANKED_DIRS[2]}|${_ZNAV_RANKED_DIRS[3]}"
+    ' _ "$PLUGIN_FILE" "$exp_home" 2>&1)
+  assert_true $? "znav import --cdr succeeded in pure Zsh with PATH=\"\""
+  [[ $cdr_out == *"CDR_OK:$exp_home/CDR.FIRST|$exp_home/CDR Spaced 'Quote'.Dir|$exp_home/REAL.DIR"* ]] \
+    && pass "znav import --cdr unquotes (qqqq) lines, assigns exact t_now - k*60.0 scores, deduplicates symlinks, and skips missing dirs" \
+    || fail "znav import --cdr mismatch: $cdr_out"
+}
+
+# ==============================================================================
+# SUITE 12: Hermetic Oh My Zsh Plugin Installer & Uninstaller (`install.sh`)
+# ==============================================================================
+print -r -- "\n--- Suite 12: Hermetic Oh My Zsh Installer & Uninstaller ---"
+() {
+  local sb="$SANDBOX_ROOT/s12_installer"
+  zf_mkdir -p "$sb/repo/functions" "$sb/home/.oh-my-zsh/custom" "$sb/home/CODE.REPOSITORIES" "$sb/home/SCRIPT.REPOS" "$sb/foreign"
+  local exp_home=${${:-$sb/home}:A}
+  local exp_repo=${${:-$sb/repo}:A}
+
+  # Copy package files into sandbox repo so .zwc compilation/cleanup never mutates host repo
+  /bin/cp "$REPO_ROOT/znav.plugin.zsh" "$REPO_ROOT/zsh-znav.plugin.zsh" "$REPO_ROOT/install.sh" "$REPO_ROOT/uninstall.sh" "$sb/repo/"
+  /bin/cp "$REPO_ROOT/functions/"* "$sb/repo/functions/"
+  /bin/chmod +x "$sb/repo/install.sh" "$sb/repo/uninstall.sh"
+  : > "$sb/home/.zcompdump-stale-5.9"
+
+  # Isolate from any exported host ZSH / ZSH_CUSTOM / ZDOTDIR / XDG_DATA_HOME variables!
+  # 12a. --dry-run modifies nothing
+  ZSH="" ZSH_CUSTOM="$sb/home/.oh-my-zsh/custom" ZDOTDIR="$sb/home" XDG_DATA_HOME="$sb/home/.local/share" \
+    HOME="$sb/home" ZNAV_DATA_DIR="$sb/home/.local/share/znav" "$sb/repo/install.sh" --dry-run >/dev/null
+  assert_true $? "install.sh --dry-run exited 0"
+  [[ ! -e "$sb/home/.oh-my-zsh/custom/plugins/zsh-znav" && -f "$sb/home/.zcompdump-stale-5.9" && ! -d "$sb/home/.local/share/znav" ]] \
+    && pass "install.sh --dry-run leaves filesystem, .zcompdump, and ZNAV_DATA_DIR untouched" \
+    || fail "install.sh --dry-run mutated filesystem"
+
+  # 12b. Default auto-detection with Oh My Zsh present installs --omz-plugin, compiles .zwc, clears .zcompdump, and seeds Day-0 $HOME!
+  ZSH="$sb/home/.oh-my-zsh" ZSH_CUSTOM="$sb/home/.oh-my-zsh/custom" ZDOTDIR="$sb/home" XDG_DATA_HOME="$sb/home/.local/share" \
+    HOME="$sb/home" ZNAV_DATA_DIR="$sb/home/.local/share/znav" "$sb/repo/install.sh" >/dev/null
+  assert_true $? "install.sh (default --omz-plugin) exited 0"
+
+  local link_plug="$sb/home/.oh-my-zsh/custom/plugins/zsh-znav/zsh-znav.plugin.zsh"
+  local link_comp="$sb/home/.oh-my-zsh/custom/plugins/zsh-znav/_znav"
+  assert_eq "${link_plug:A}" "$exp_repo/zsh-znav.plugin.zsh" "install.sh links \$ZSH_CUSTOM/plugins/zsh-znav/zsh-znav.plugin.zsh"
+  assert_eq "${link_comp:A}" "$exp_repo/functions/_znav" "install.sh links \$ZSH_CUSTOM/plugins/zsh-znav/_znav for single-pass OMZ compinit"
+  [[ -f "$sb/repo/znav.plugin.zsh.zwc" && -f "$sb/repo/functions/znav.zwc" && -f "$sb/repo/functions/_znav_precmd_once.zwc" ]] \
+    && pass "install.sh compiles .zwc wordcode for plugin and autoload functions" \
+    || fail "install.sh missed .zwc compilation"
+  [[ ! -e "$sb/home/.zcompdump-stale-5.9" ]] && pass "install.sh clears stale ~/.zcompdump*" || fail "Stale .zcompdump remained"
+  [[ -f "$sb/home/.local/share/znav/db.tsv" ]] && pass "install.sh initializes Day-0 \$HOME depth-1 compacted db.tsv" || fail "Day-0 db.tsv missing"
+
+  # 12c. Simulate exact Oh My Zsh startup (pre-compinit $fpath -> compinit -> source plugin) and verify zero console output (P10k instant-prompt safe!)
+  local omz_stdout="$sb/omz_stdout.log" omz_stderr="$sb/omz_stderr.log"
+  HOME="$sb/home" ZNAV_DATA_DIR="$sb/home/.local/share/znav" LC_ALL=C TERM=dumb \
+    /bin/zsh -dfi +Z +m -c '
+      PROMPT="" RPROMPT=""
+      zmodload zsh/parameter
+      setopt AUTO_CD
+      fpath=("$HOME/.oh-my-zsh/custom/plugins/zsh-znav" $fpath)
+      autoload -Uz compinit && compinit -u -d "$HOME/.zcompdump-test"
+      source "$HOME/.oh-my-zsh/custom/plugins/zsh-znav/zsh-znav.plugin.zsh"
+      [[ ${_comps[znav]:-} == _znav && ${_comps[j]:-} == _znav ]] || exit 31
+      [[ ${options[cdablevars]} == on ]] || exit 32
+      [[ ${nameddirs[cr]:-} == "${HOME:A}/CODE.REPOSITORIES" ]] || exit 33
+      [[ ${nameddirs[sr]:-} == "${HOME:A}/SCRIPT.REPOS" ]] || exit 34
+    ' >"$omz_stdout" 2>"$omz_stderr"
+  assert_true $? "Simulated Oh My Zsh single-pass compinit + plugin load succeeded"
+  assert_eq "$(<"$omz_stdout")$(<"$omz_stderr")" "" "Zero stdout/stderr console output during startup (Powerlevel10k instant-prompt safe)"
+
+  # 12d. Test uninstall.sh removes our symlinks & .zwc while preserving foreign symlinks and user data
+  : > "$sb/foreign/other_fn"
+  zf_mkdir -p "$sb/home/.local/share/zsh/site-functions"
+  /bin/ln -sfn "$sb/foreign/other_fn" "$sb/home/.local/share/zsh/site-functions/znav"
+  ZSH="$sb/home/.oh-my-zsh" ZSH_CUSTOM="$sb/home/.oh-my-zsh/custom" ZDOTDIR="$sb/home" XDG_DATA_HOME="$sb/home/.local/share" \
+    HOME="$sb/home" ZNAV_DATA_DIR="$sb/home/.local/share/znav" "$sb/repo/uninstall.sh" >/dev/null
+  assert_true $? "uninstall.sh exited 0"
+  [[ ! -d "$sb/home/.oh-my-zsh/custom/plugins/zsh-znav" ]] && pass "uninstall.sh removes plugin symlinks and empty plugin directory" || fail "Plugin directory still exists after uninstall.sh"
+  [[ ! -f "$sb/repo/znav.plugin.zsh.zwc" && ! -f "$sb/repo/functions/znav.zwc" ]] && pass "uninstall.sh cleans compiled .zwc wordcode" || fail ".zwc remained after uninstall.sh"
+  [[ -L "$sb/home/.local/share/zsh/site-functions/znav" && -f "$sb/home/.local/share/znav/db.tsv" ]] \
+    && pass "uninstall.sh preserves foreign symlinks and user frecency database by default" \
+    || fail "uninstall.sh deleted foreign symlink or user db.tsv"
+}
 
 # ==============================================================================
 # HOST UNTOUCHED INVARIANT CHECK

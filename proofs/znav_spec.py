@@ -1,4 +1,4 @@
-#!/opt/homebrew/bin/python3
+#!/usr/bin/env python3
 """Canonical Executable Mathematical Specification for znav.
 
 This module implements the exact proven mathematical core of `znav`:

@@ -1,4 +1,4 @@
-#!/opt/homebrew/bin/python3
+#!/usr/bin/env python3
 """Formal Verification of Primitive 2: Candidate Lattice, Strict Total Order,
 Collision-Free Bijection, No-Hijack Theorem, and Matroid/Lexicographic Optimality.
 
