@@ -666,7 +666,11 @@ print -r -- "\n--- Suite 8: zcompile Bytecode Compatibility ---"
   zf_mkdir -p "$sb/pkg/functions" "$sb/home/CODE.REPOSITORIES" "$sb/home/SCRIPT.REPOS" "$sb/data"
   /bin/cp "$PLUGIN_FILE" "$sb/pkg/znav.plugin.zsh"
   if [[ -d "$REPO_ROOT/functions" ]]; then
-    /bin/cp -R "$REPO_ROOT/functions/"* "$sb/pkg/functions/" 2>/dev/null || true
+    local _src_fn
+    for _src_fn in "$REPO_ROOT"/functions/*(.N); do
+      [[ $_src_fn == *.zwc || $_src_fn == *.zwc.old ]] && continue
+      /bin/cp "$_src_fn" "$sb/pkg/functions/"
+    done
   fi
 
   local zc_out
@@ -675,6 +679,7 @@ print -r -- "\n--- Suite 8: zcompile Bytecode Compatibility ---"
       PROMPT="" RPROMPT=""
       zcompile '"${(q)sb}"'/pkg/znav.plugin.zsh || exit 11
       for f in '"${(q)sb}"'/pkg/functions/*(N.); do
+        [[ $f == *.zwc || $f == *.zwc.old ]] && continue
         zcompile "$f" || exit 12
       done
       source '"${(q)sb}"'/pkg/znav.plugin.zsh || exit 13
@@ -902,9 +907,13 @@ print -r -- "\n--- Suite 12: Hermetic Oh My Zsh Installer & Uninstaller ---"
   local exp_home=${${:-$sb/home}:A}
   local exp_repo=${${:-$sb/repo}:A}
 
-  # Copy package files into sandbox repo so .zwc compilation/cleanup never mutates host repo
+  # Copy package source files (excluding any host .zwc/.zwc.old) into sandbox repo
   /bin/cp "$REPO_ROOT/znav.plugin.zsh" "$REPO_ROOT/zsh-znav.plugin.zsh" "$REPO_ROOT/install.sh" "$REPO_ROOT/uninstall.sh" "$sb/repo/"
-  /bin/cp "$REPO_ROOT/functions/"* "$sb/repo/functions/"
+  local _repo_fn
+  for _repo_fn in "$REPO_ROOT"/functions/*(.N); do
+    [[ $_repo_fn == *.zwc || $_repo_fn == *.zwc.old ]] && continue
+    /bin/cp "$_repo_fn" "$sb/repo/functions/"
+  done
   /bin/chmod +x "$sb/repo/install.sh" "$sb/repo/uninstall.sh"
   : > "$sb/home/.zcompdump-stale-5.9"
 

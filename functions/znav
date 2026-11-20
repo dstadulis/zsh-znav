@@ -599,7 +599,7 @@ case $_subcmd in
     fi
     local _fn
     for _fn in "$ZNAV_PLUGIN_DIR"/functions/*(.N); do
-      [[ $_fn == *.zwc ]] && continue
+      [[ $_fn == *.zwc || $_fn == *.zwc.old ]] && continue
       builtin zcompile -Uz -- "$_fn" || return 1
     done
     return 0

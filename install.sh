@@ -115,7 +115,7 @@ case "$mode" in
   site-functions)
     target_dir="${zsh_dir_override:-${XDG_DATA_HOME:-$HOME/.local/share}/zsh/site-functions}"
     for fn_src in "$REPO_DIR"/functions/*(.N); do
-      [[ "$fn_src" == *.zwc ]] && continue
+      [[ "$fn_src" == *.zwc || "$fn_src" == *.zwc.old ]] && continue
       run_link "$fn_src" "$target_dir/${fn_src:t}"
     done
     ;;
