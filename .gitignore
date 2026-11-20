@@ -1,0 +1,23 @@
+# Zsh compiled wordcode & completion caches
+*.zwc
+*.zwc.old
+.zcompdump*
+
+# Python bytecode caches (proofs, tests, benchmarks)
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local znav runtime state & WAL compaction locks (if pointed inside repo)
+.znav_data/
+compact.lock/
+wal.log
+wal.compacting
+db.tsv
+db.tsv.tmp.*
+
+# macOS & editor artifacts
+.DS_Store
+*.swp
+*.swo
+*~
