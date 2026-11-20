@@ -100,6 +100,7 @@ if (( CURRENT == 2 )); then
     'explain:inspect candidate lattice K(d) and collision reasons'
     'stats:compute Shannon entropy bounds and keystroke savings'
     'seed:bootstrap unseen depth-1 workspace subdirectories'
+    'import:import directory history from zoxide or Zsh cdr'
     'compact:atomically compact WAL into snapshot db.tsv'
     'prune:remove deleted directories from database'
     'compile:zcompile plugin and autoload functions to bytecode'
@@ -129,6 +130,20 @@ case $_sub in
     ;;
   (seed)
     _directories && _rc=0
+    ;;
+  (import)
+    if [[ ${words[CURRENT-1]:-} == (-f|--file) ]]; then
+      _files && _rc=0
+    else
+      local -a _impopts=(
+        '--zoxide:import frecency scores from zoxide query -ls'
+        '--cdr:import recent directories from Zsh cdr file'
+        '--file:path to .chpwd-recent-dirs file for --cdr'
+        '-h:display help message'
+        '--help:display help message'
+      )
+      _describe -t options 'import option' _impopts && _rc=0
+    fi
     ;;
   (list|ls)
     local -a _lopts=(

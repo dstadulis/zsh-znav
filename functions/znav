@@ -452,6 +452,133 @@ case $_subcmd in
     return 0
     ;;
 
+  (import)
+    unfunction _znav_abbrev_home 2>/dev/null || true
+    integer _do_zoxide=0 _do_cdr=0
+    local _cdr_file=""
+    while (( $# > 0 )); do
+      case $1 in
+        (--zoxide)
+          _do_zoxide=1
+          shift
+          ;;
+        (--cdr)
+          _do_cdr=1
+          shift
+          ;;
+        (-f|--file)
+          shift
+          if (( $# == 0 )); then
+            builtin print -u2 -r -- "znav import: --file requires a path argument"
+            return 1
+          fi
+          _cdr_file=$1
+          shift
+          ;;
+        (--file=*)
+          _cdr_file=${1#--file=}
+          shift
+          ;;
+        (-h|--help)
+          builtin print -r -- "Usage: znav import [--zoxide] [--cdr [--file <path>]]"
+          builtin print -r -- ""
+          builtin print -r -- "Options:"
+          builtin print -r -- "  --zoxide        Import frecency scores from 'zoxide query -ls' (Λ = t_now + τ ln S)"
+          builtin print -r -- "  --cdr           Import recent directories from Zsh cdr file in pure Zsh"
+          builtin print -r -- "  --file <path>   Override cdr file path (default: \${ZDOTDIR:-\$HOME}/.chpwd-recent-dirs)"
+          return 0
+          ;;
+        (*)
+          builtin print -u2 -r -- "znav import: unknown option '$1' (run 'znav import --help')"
+          return 1
+          ;;
+      esac
+    done
+
+    if (( !_do_zoxide && !_do_cdr )); then
+      builtin print -u2 -r -- "znav import: specify --zoxide and/or --cdr [--file <path>]"
+      return 1
+    fi
+
+    _znav_now
+    float -E 17 _now=$REPLY _hl=$ZNAV_HALF_LIFE _tau
+    (( _hl <= 0.0 )) && _hl=259200.0
+    (( _tau = _hl / log(2.0) ))
+
+    if (( _do_cdr )); then
+      local _src_cdr=${_cdr_file:-${ZDOTDIR:-$HOME}/.chpwd-recent-dirs}
+      if [[ ! -r $_src_cdr ]]; then
+        builtin print -u2 -r -- "znav import: cannot read cdr file: $_src_cdr"
+        return 1
+      fi
+      local -A _cdr_seen=()
+      local _line _unq _canon
+      integer _k=0
+      float -E 17 _lam_cdr
+      while IFS='' read -r _line || [[ -n $_line ]]; do
+        [[ -z ${_line//[[:space:]]/} ]] && continue
+        _unq=${(Q)_line}
+        [[ -z $_unq || ! -d $_unq ]] && continue
+        _znav_canon_path "$_unq" || continue
+        _canon=$REPLY
+        (( $+_cdr_seen[$_canon] )) && continue
+        _cdr_seen[$_canon]=1
+        (( _lam_cdr = _now - _k * 60.0 ))
+        (( _k++ ))
+        _ZNAV_SCORE[$_canon]=$_lam_cdr
+        _ZNAV_LAST_SCORE_COUNT=${#_ZNAV_SCORE}
+        _znav_wal_append S "$_lam_cdr" "$_canon"
+      done < "$_src_cdr"
+    fi
+
+    if (( _do_zoxide )); then
+      if (( ! $+commands[zoxide] )); then
+        builtin print -u2 -r -- "znav import: 'zoxide' command not found in PATH"
+        return 1
+      fi
+      local _zo_out
+      if ! _zo_out=$(command zoxide query -ls); then
+        builtin print -u2 -r -- "znav import: 'zoxide query -ls' failed"
+        return 1
+      fi
+      local -A _zo_map=()
+      local _line _trim _sc_s _rest _raw_p _canon _prev_raw
+      float -E 17 _s _lam_zo _prev _mx _diff
+      for _line in "${(@f)_zo_out}"; do
+        _trim=${_line##[[:blank:]]#}
+        [[ -z $_trim ]] && continue
+        _sc_s=${_trim%%[[:blank:]]*}
+        _rest=${_trim#${_sc_s}}
+        _raw_p=${_rest##[[:blank:]]#}
+        [[ -z $_sc_s || -z $_raw_p ]] && continue
+        [[ $_sc_s == [+-]#(<->|<->.<->|<->.|.<->)([eE][+-]#<->|) ]] || continue
+        (( _s = _sc_s ))
+        (( _s > 0.0 )) || continue
+        [[ -d $_raw_p ]] || continue
+        _znav_canon_path "$_raw_p" || continue
+        _canon=$REPLY
+        (( _lam_zo = _now + _tau * log(_s) ))
+        if [[ -n ${_zo_map[$_canon]+x} ]]; then
+          _prev_raw=${_zo_map[$_canon]}
+          (( _prev = _prev_raw ))
+          (( _mx = _prev >= _lam_zo ? _prev : _lam_zo ))
+          (( _diff = _prev >= _lam_zo ? _prev - _lam_zo : _lam_zo - _prev ))
+          (( _lam_zo = _mx + _tau * log(1.0 + exp(-_diff / _tau)) ))
+        fi
+        _zo_map[$_canon]=$_lam_zo
+      done
+      for _canon _prev_raw in "${(@kv)_zo_map}"; do
+        (( _lam_zo = _prev_raw ))
+        _ZNAV_SCORE[$_canon]=$_lam_zo
+        _ZNAV_LAST_SCORE_COUNT=${#_ZNAV_SCORE}
+        _znav_wal_append S "$_lam_zo" "$_canon"
+      done
+    fi
+
+    _znav_compact_impl 0
+    return 0
+    ;;
+
   (compact)
     unfunction _znav_abbrev_home 2>/dev/null || true
     _znav_compact_impl 0
@@ -467,6 +594,9 @@ case $_subcmd in
   (compile)
     unfunction _znav_abbrev_home 2>/dev/null || true
     builtin zcompile -Rz -- "$ZNAV_PLUGIN_DIR/znav.plugin.zsh" || return 1
+    if [[ -f "$ZNAV_PLUGIN_DIR/zsh-znav.plugin.zsh" ]]; then
+      builtin zcompile -Rz -- "$ZNAV_PLUGIN_DIR/zsh-znav.plugin.zsh" || return 1
+    fi
     local _fn
     for _fn in "$ZNAV_PLUGIN_DIR"/functions/*(.N); do
       [[ $_fn == *.zwc ]] && continue
@@ -486,6 +616,7 @@ case $_subcmd in
     builtin print -r -- "  explain [code|dir]      Inspect K(d) candidate lattice, tie-breakers & collisions"
     builtin print -r -- "  stats                   Compute empirical Shannon entropy H(P) & keystroke efficiency"
     builtin print -r -- "  seed [root ...]         Bootstrap unseen depth-1 subdirectories (default: \$HOME)"
+    builtin print -r -- "  import [--zoxide|--cdr] Import directory history from zoxide or Zsh cdr"
     builtin print -r -- "  compact                 Atomically compact append-only WAL into snapshot db.tsv"
     builtin print -r -- "  prune                   Remove deleted directories from database & nameddirs"
     builtin print -r -- "  compile                 Bytecode-compile plugin & autoload functions via zcompile"

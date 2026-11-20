@@ -34,6 +34,7 @@
   typeset -g ZNAV_CMD=${ZNAV_CMD:-j}
   typeset -g ZNAV_PROMPT_DYNAMIC=${ZNAV_PROMPT_DYNAMIC:-0}
   typeset -g ZNAV_AUTO_SEED=${ZNAV_AUTO_SEED:-1}
+  typeset -g ZNAV_CDABLE_VARS=${ZNAV_CDABLE_VARS:-1}
 
   # Internal global engine state.
   typeset -g  REPLY=""
@@ -1110,9 +1111,10 @@ _znav_seed_roots() {
   emulate -L zsh
   setopt extended_glob warn_create_global typeset_silent no_short_loops
 
-  autoload -Uz add-zsh-hook znav _znav _znav_chpwd _znav_zshexit _znav_directory_name
+  autoload -Uz add-zsh-hook znav _znav _znav_chpwd _znav_zshexit _znav_directory_name _znav_precmd_once
 
   add-zsh-hook chpwd _znav_chpwd
+  add-zsh-hook precmd _znav_precmd_once
   add-zsh-hook zshexit _znav_zshexit
   add-zsh-hook zsh_directory_name _znav_directory_name
 
@@ -1143,3 +1145,9 @@ _znav_seed_roots() {
     _znav_rebuild_projections
   fi
 }
+
+# Persist CDABLE_VARS in caller scope when ZNAV_CDABLE_VARS=1 (default) so bare
+# shortcodes (e.g. `cr`, `sr`) jump directly alongside AUTO_CD.
+if (( ZNAV_CDABLE_VARS )); then
+  builtin setopt CDABLE_VARS
+fi
