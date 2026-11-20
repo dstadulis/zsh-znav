@@ -1,0 +1,22 @@
+#autoload
+# _znav_chpwd — O(1) Zero-Fork Directory Change Hook for znav
+
+emulate -L zsh
+setopt extended_glob warn_create_global typeset_silent no_short_loops
+
+# Never mutate persistent directory state from forked subshells or completion widgets.
+(( ZSH_SUBSHELL == 0 )) || return 0
+if [[ ${ZSH_EVAL_CONTEXT:-} == *:(zle|comppost|compcore)* ]]; then
+  return 0
+fi
+
+_znav_canon_path "$PWD" || return 0
+local _canon=$REPLY
+
+_znav_now
+float -E 17 _ts=$REPLY
+
+_znav_lse_fold_score "$_canon" "$_ts"
+_znav_sync_visit "$_canon"
+_znav_wal_append V "$_ts" "$_canon"
+return 0

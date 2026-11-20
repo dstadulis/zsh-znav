@@ -1,0 +1,11 @@
+#autoload
+# _znav_zshexit — Atomic Exit-Time WAL Compaction Hook for znav
+
+emulate -L zsh
+setopt extended_glob warn_create_global typeset_silent no_short_loops
+
+(( ZSH_SUBSHELL == 0 )) || return 0
+if (( _ZNAV_WAL_LINES > 0 )) && [[ -f "$ZNAV_DATA_DIR/wal.log" ]]; then
+  _znav_compact_impl 1
+fi
+return 0
