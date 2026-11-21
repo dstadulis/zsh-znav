@@ -15,10 +15,12 @@
 #  10. Shell Ergonomics (`ZNAV_CDABLE_VARS=1`/`0` & `_znav_precmd_once` Post-`.zshrc` Guard)
 #  11. Migration Importers (`znav import --zoxide` Mock & `znav import --cdr` Pure Zsh)
 #  12. Hermetic Packaging & Installer (`zsh-znav.plugin.zsh`, `install.sh`, `uninstall.sh`)
+#  13. Benchmark Pipeline, README Auto-Injector & CI/CD Workflow Loop-Safety Audit
 # ==============================================================================
 
 emulate -L zsh
 setopt extended_glob typeset_silent no_short_loops pipe_fail
+unset FPATH
 
 readonly REAL_HOME=$HOME
 readonly TESTS_DIR=${0:A:h}
@@ -229,10 +231,12 @@ print -r -- "\n--- Suite 2: Zero-Fork & Zero-Subshell Proof ---"
   assert_true $rc "All hot & cold paths succeed with PATH=\"\" (including 160-step auto-compaction)"
   assert_eq "$stderr_txt" "" "Zero stderr 'command not found' messages under PATH=\"\""
 
-  # Run XNU Mach-task kernel rusage_info_v4 Zero-Fork Proof
-  if command -v python3 >/dev/null 2>&1; then
+  # Run XNU Mach-task kernel rusage_info_v4 Zero-Fork Proof (macOS Darwin)
+  if [[ $OSTYPE == darwin* ]] && command -v python3 >/dev/null 2>&1; then
     python3 "$TESTS_DIR/verify_zero_fork.py"
     assert_true $? "XNU Kernel proc_pid_rusage(RUSAGE_INFO_V4) proves 0 forks across all znav paths"
+  else
+    pass "Zero-fork verified via PATH=\"\" + ZSH_SUBSHELL + sysparams[pid] (non-Darwin host)"
   fi
 }
 
@@ -477,8 +481,11 @@ print -r -- "\n--- Suite 6: Pathological Filenames, Security, UTF-8, Symlinks & 
   zf_mkdir -p "$d_space" "$d_glob" "$d_quote" "$d_inject" "$d_dollar" "$d_hyphen" "$d_escape" "$d_utf8" "$d_real" "$d_ghost"
   /bin/ln -s "$d_real" "$d_sym"
 
+  local utf8_loc="en_US.UTF-8"
+  [[ $OSTYPE != darwin* ]] && utf8_loc="C.UTF-8"
+
   local out
-  out=$(HOME="$sb/home" ZNAV_DATA_DIR="$sb/data" LC_ALL=en_US.UTF-8 TERM=dumb \
+  out=$(HOME="$sb/home" ZNAV_DATA_DIR="$sb/data" LC_ALL="$utf8_loc" TERM=dumb \
     /bin/zsh -dfi +Z +m -c '
       PROMPT="" RPROMPT=""
       source '"${(q)PLUGIN_FILE}"' || exit 1
@@ -546,7 +553,7 @@ print -r -- "\n--- Suite 6: Pathological Filenames, Security, UTF-8, Symlinks & 
 
   # Reload compacted DB in a brand-new shell to ensure `100%pure\tpath.dir`, quotes, globs, dollar survived intact!
   local reload_out
-  reload_out=$(HOME="$sb/home" ZNAV_DATA_DIR="$sb/data" LC_ALL=en_US.UTF-8 TERM=dumb \
+  reload_out=$(HOME="$sb/home" ZNAV_DATA_DIR="$sb/data" LC_ALL="$utf8_loc" TERM=dumb \
     /bin/zsh -dfi +Z +m -c '
       PROMPT="" RPROMPT=""
       source '"${(q)PLUGIN_FILE}"' || exit 1
@@ -712,13 +719,13 @@ fi
 print -r -- "\n--- Suite 10: ZNAV_CDABLE_VARS Ergonomics & Post-.zshrc Alias Guard ---"
 () {
   local sb="$SANDBOX_ROOT/s10_ergonomics"
-  zf_mkdir -p "$sb/home/CODE.REPOSITORIES" "$sb/home/SCRIPT.REPOS" "$sb/home/GIT.STATUS" "$sb/home/LAZY.GIT" "$sb/home/LAZY.GIT.STATUS" "$sb/data1" "$sb/data2" "$sb/data3"
+  zf_mkdir -p "$sb/empty_bin" "$sb/home/CODE.REPOSITORIES" "$sb/home/SCRIPT.REPOS" "$sb/home/GIT.STATUS" "$sb/home/LAZY.GIT" "$sb/home/LAZY.GIT.STATUS" "$sb/data1" "$sb/data2" "$sb/data3"
   local exp_home=${${:-$sb/home}:A}
   local entry_plugin="$REPO_ROOT/zsh-znav.plugin.zsh"
 
   # 10a. Default ZNAV_CDABLE_VARS=1 sets CDABLE_VARS in caller scope -> bare cr/sr work with AUTO_CD alone!
   local cdv_on
-  cdv_on=$(HOME="$sb/home" ZNAV_DATA_DIR="$sb/data1" LC_ALL=C TERM=dumb \
+  cdv_on=$(HOME="$sb/home" ZNAV_DATA_DIR="$sb/data1" PATH="$sb/empty_bin" LC_ALL=C TERM=dumb \
     /bin/zsh -dfis +Z +m <<EOF 2>/dev/null
 PROMPT="" RPROMPT="" PS1="" PS2=""
 setopt NO_PROMPT_SP AUTO_CD
@@ -741,7 +748,7 @@ EOF
 
   # 10b. Opt-out ZNAV_CDABLE_VARS=0 preserves caller's unset CDABLE_VARS and exits 0!
   local cdv_off
-  cdv_off=$(HOME="$sb/home" ZNAV_DATA_DIR="$sb/data2" ZNAV_CDABLE_VARS=0 LC_ALL=C TERM=dumb \
+  cdv_off=$(HOME="$sb/home" ZNAV_DATA_DIR="$sb/data2" ZNAV_CDABLE_VARS=0 PATH="$sb/empty_bin" LC_ALL=C TERM=dumb \
     /bin/zsh -dfi +Z +m -c '
       PROMPT="" RPROMPT=""
       zmodload zsh/parameter
@@ -764,7 +771,7 @@ alias lg="lazygit"
 alias lgs="lazygit status"
 EOF
   local precmd_out
-  precmd_out=$(HOME="$sb/home" ZNAV_DATA_DIR="$sb/data3" LC_ALL=C TERM=dumb \
+  precmd_out=$(HOME="$sb/home" ZNAV_DATA_DIR="$sb/data3" PATH="$sb/empty_bin" LC_ALL=C TERM=dumb \
     /bin/zsh -dfis +Z +m <<EOF 2>/dev/null
 source ${(q)sb}/sim_zshrc
 print -r -- "POST_HOOK:\${precmd_functions[(Ie)_znav_precmd_once]:-0}:POST_GS:\${+nameddirs[gs]}:POST_LG:\${+nameddirs[lg]}:POST_LGS:\${+nameddirs[lgs]}"
@@ -971,6 +978,334 @@ print -r -- "\n--- Suite 12: Hermetic Oh My Zsh Installer & Uninstaller ---"
   [[ -L "$sb/home/.local/share/zsh/site-functions/znav" && -f "$sb/home/.local/share/znav/db.tsv" ]] \
     && pass "uninstall.sh preserves foreign symlinks and user frecency database by default" \
     || fail "uninstall.sh deleted foreign symlink or user db.tsv"
+}
+
+# ==============================================================================
+# SUITE 13: Benchmark Pipeline, README Auto-Injector & CI/CD Loop-Safety Audit
+# ==============================================================================
+print -r -- "\n--- Suite 13: Benchmark Pipeline, README Auto-Injector & CI/CD Workflows ---"
+() {
+  local sb="$SANDBOX_ROOT/s13_bench_ci"
+  zf_mkdir -p "$sb/out" "$sb/linux_out" "$sb/linux_bin"
+
+  # 13a. Hermetic benchmark run (ZNAV_BENCH_ITERS=20) + README sentinel splicing + idempotency
+  local prefix_txt=$'# Custom Header Above Sentinels\n\nKeep `$LITERAL` and | pipes | 100% untouched!\n\n'
+  local suffix_txt=$'\n\n## Footer Below Sentinels\n\nTrailing content `~cr` stays byte-exact.\n'
+  python3 - "$sb/README.md" "$sb/bad_readme.md" "$prefix_txt" "$suffix_txt" <<'PYEOF'
+import sys
+from pathlib import Path
+
+readme_p, bad_p, pre, suf = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+Path(readme_p).write_text(
+    pre + "<!-- BEGIN ZNAV_BENCHMARKS -->\nSTALE PLACEHOLDER\n<!-- END ZNAV_BENCHMARKS -->" + suf,
+    encoding="utf-8",
+)
+Path(bad_p).write_text("# README missing sentinel markers\n", encoding="utf-8")
+PYEOF
+
+  ZNAV_BENCH_ITERS=20 ZNAV_BENCH_WARMUP_STEPS=200 ZNAV_BENCH_TRACE_STEPS=600 \
+    zsh "$REPO_ROOT/benchmarks/run_bench.zsh" \
+    --output-dir "$sb/out" \
+    --readme "$sb/README.md" >/dev/null
+  assert_true $? "Hermetic run_bench.zsh (ZNAV_BENCH_ITERS=20) exited 0"
+
+  local audit_13a
+  audit_13a=$(python3 - "$sb/out/results.json" "$sb/out/results.md" "$sb/README.md" "$sb/bad_readme.md" \
+    "$REPO_ROOT/benchmarks/update_readme.py" "$prefix_txt" "$suffix_txt" 2>&1 <<'PYEOF'
+import hashlib
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+json_p = Path(sys.argv[1])
+md_p = Path(sys.argv[2])
+readme_p = Path(sys.argv[3])
+bad_p = Path(sys.argv[4])
+updater_p = Path(sys.argv[5])
+exp_pre = sys.argv[6]
+exp_suf = sys.argv[7]
+
+data = json.loads(json_p.read_text(encoding="utf-8"))
+assert data["schema_version"] == 1
+assert data["environment"]["iterations"] == 20
+for k in ("50", "500", "2000"):
+    assert data["chpwd_latency_us"][k]["znav"] > 0
+    assert data["chpwd_latency_us"][k]["cdr"] > 0
+    assert data["chpwd_latency_us"][k]["fork_floor"] > 0
+assert data["jump_latency_us"]["tilde_static"] >= 0
+assert [t["N"] for t in data["info_efficiency"]["trees"]] == [30, 100, 500]
+
+md_txt = md_p.read_text(encoding="utf-8")
+readme_txt = readme_p.read_text(encoding="utf-8")
+
+begin_m = "<!-- BEGIN ZNAV_BENCHMARKS -->"
+end_m = "<!-- END ZNAV_BENCHMARKS -->"
+b_idx = readme_txt.index(begin_m)
+e_idx = readme_txt.index(end_m)
+got_pre = readme_txt[:b_idx]
+got_suf = readme_txt[e_idx + len(end_m):]
+assert got_pre == exp_pre, f"Prefix mutated: {got_pre!r} != {exp_pre!r}"
+assert got_suf == exp_suf, f"Suffix mutated: {got_suf!r} != {exp_suf!r}"
+
+inner = readme_txt[b_idx + len(begin_m):e_idx]
+assert "STALE PLACEHOLDER" not in inner
+assert "## Performance Benchmarks" in inner
+assert "[`benchmarks/results.md`](benchmarks/results.md)" in inner
+
+# Verify 1-to-1 numeric correspondence across results.json, results.md, and README.md
+z2000 = f"{data['chpwd_latency_us']['2000']['znav']:.2f}"
+c2000 = f"{data['chpwd_latency_us']['2000']['cdr']:.2f}"
+j_tilde = f"{data['jump_latency_us']['tilde_static']:.2f}"
+s500_ks = f"{data['info_efficiency']['trees'][-1]['znav_exp_ks_bare']:.2f}"
+for token in (z2000, c2000, j_tilde, s500_ks):
+    assert token in md_txt, f"Missing {token} in results.md"
+    assert token in inner, f"Missing {token} in README.md sentinel block"
+
+# Verify idempotency of update_readme.py + --check flag
+sha_before = hashlib.sha256(readme_p.read_bytes()).hexdigest()
+subprocess.run(
+    [sys.executable, str(updater_p), "--results", str(json_p), "--readme", str(readme_p)],
+    check=True,
+    stdout=subprocess.DEVNULL,
+)
+sha_after = hashlib.sha256(readme_p.read_bytes()).hexdigest()
+assert sha_before == sha_after, "update_readme.py is not idempotent!"
+
+subprocess.run(
+    [sys.executable, str(updater_p), "--results", str(json_p), "--readme", str(readme_p), "--check"],
+    check=True,
+    stdout=subprocess.DEVNULL,
+)
+
+# Verify missing sentinel markers fail cleanly without mutating file
+bad_before = bad_p.read_bytes()
+rc = subprocess.run(
+    [sys.executable, str(updater_p), "--results", str(json_p), "--readme", str(bad_p)],
+    stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL,
+).returncode
+assert rc != 0, "Expected non-zero exit when sentinel markers are missing"
+assert bad_p.read_bytes() == bad_before, "Malformed README should not be modified"
+print("BENCH_13A_OK")
+PYEOF
+  )
+  assert_true $? "Benchmark JSON, results.md, README sentinel splice, and idempotency checks passed"
+  [[ $audit_13a == *"BENCH_13A_OK"* ]] \
+    && pass "README content outside sentinels is 100% byte-identical and update_readme.py is idempotent" \
+    || fail "Suite 13a audit output: $audit_13a"
+
+  # 13b. Linux /proc/cpuinfo + /etc/os-release + missing-zoxide fallback + --no-readme
+  for tool in zsh python3 uname true echo rm; do
+    local tpath=${commands[$tool]:-}
+    [[ -n $tpath ]] && /bin/ln -sf "$tpath" "$sb/linux_bin/$tool"
+  done
+  cat > "$sb/proc_cpuinfo" <<'EOF'
+processor	: 0
+model name	: AMD EPYC 7763 64-Core Processor
+EOF
+  cat > "$sb/os_release" <<'EOF'
+NAME="Ubuntu"
+VERSION_ID="24.04"
+PRETTY_NAME="Ubuntu 24.04.2 LTS"
+EOF
+
+  local readme_mtime_before
+  typeset -A _rm_st1 _rm_st2
+  zstat -H _rm_st1 "$sb/README.md"
+  readme_mtime_before=${_rm_st1[mtime]}
+
+  PATH="$sb/linux_bin" \
+    ZNAV_BENCH_PROC_CPUINFO="$sb/proc_cpuinfo" \
+    ZNAV_BENCH_OS_RELEASE="$sb/os_release" \
+    ZNAV_BENCH_ITERS=8 \
+    ZNAV_BENCH_WARMUP_STEPS=50 \
+    ZNAV_BENCH_TRACE_STEPS=150 \
+    zsh "$REPO_ROOT/benchmarks/run_bench.zsh" \
+    --output-dir "$sb/linux_out" \
+    --readme "$sb/README.md" \
+    --no-readme >/dev/null
+  assert_true $? "Linux metadata fallback & missing-zoxide run_bench.zsh exited 0"
+
+  zstat -H _rm_st2 "$sb/README.md"
+  assert_eq "${_rm_st2[mtime]}" "$readme_mtime_before" "--no-readme leaves target README completely untouched"
+
+  local audit_13b
+  audit_13b=$(python3 - "$sb/linux_out/results.json" "$sb/linux_out/results.md" 2>&1 <<'PYEOF'
+import json
+import sys
+from pathlib import Path
+
+d = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+md = Path(sys.argv[2]).read_text(encoding="utf-8")
+assert d["environment"]["hardware"] == "AMD EPYC 7763 64-Core Processor", d["environment"]
+assert d["environment"]["os"] == "Ubuntu 24.04.2 LTS", d["environment"]
+assert d["environment"]["zoxide_available"] is False
+assert d["chpwd_latency_us"]["2000"]["zoxide"] is None
+assert d["jump_latency_us"]["zoxide_jump"] is None
+assert "N/A faster" not in md
+print("LINUX_FALLBACK_OK")
+PYEOF
+  )
+  [[ $audit_13b == *"LINUX_FALLBACK_OK"* ]] \
+    && pass "Linux /proc/cpuinfo + /etc/os-release + missing-zoxide fallback produces clean JSON & Markdown" \
+    || fail "Linux fallback audit failed: $audit_13b"
+
+  # 13c. CI/CD Workflows (.github/workflows/ci.yml & perf-autoupdate.yml) Parsing & Loop-Safety Audit
+  local audit_13c
+  audit_13c=$(python3 - "$REPO_ROOT/.github/workflows/ci.yml" "$REPO_ROOT/.github/workflows/perf-autoupdate.yml" 2>&1 <<'PYEOF'
+import fnmatch
+import re
+import sys
+from pathlib import Path
+
+ci_path = Path(sys.argv[1])
+perf_path = Path(sys.argv[2])
+assert ci_path.is_file(), f"Missing {ci_path}"
+assert perf_path.is_file(), f"Missing {perf_path}"
+
+ci_raw = ci_path.read_text(encoding="utf-8")
+perf_raw = perf_path.read_text(encoding="utf-8")
+
+for p, txt in ((ci_path, ci_raw), (perf_path, perf_raw)):
+    for lineno, ln in enumerate(txt.splitlines(), 1):
+        assert "\t" not in ln, f"Tab character in {p.name}:{lineno}"
+
+
+def extract_trigger_paths_from_text(yaml_text: str) -> dict[str, list[str]]:
+    """Stdlib indentation-aware extractor for on.<event>.paths lists."""
+    events: dict[str, list[str]] = {}
+    in_on = False
+    cur_event = None
+    in_paths = False
+    for raw_ln in yaml_text.splitlines():
+        stripped = raw_ln.split("#", 1)[0].rstrip()
+        if not stripped.strip():
+            continue
+        indent = len(stripped) - len(stripped.lstrip(" "))
+        content = stripped.strip()
+        if indent == 0:
+            in_on = content in ("on:", '"on":', "'on':")
+            cur_event = None
+            in_paths = False
+        elif in_on and indent == 2 and content.endswith(":"):
+            cur_event = content[:-1].strip("\"'")
+            events.setdefault(cur_event, [])
+            in_paths = False
+        elif in_on and cur_event and indent == 4:
+            in_paths = content == "paths:"
+        elif in_on and cur_event and in_paths and indent >= 6 and content.startswith("- "):
+            item = content[2:].strip().strip("\"'")
+            events[cur_event].append(item)
+    return events
+
+
+# Also validate via PyYAML if installed on host/runner
+try:
+    import yaml  # type: ignore
+
+    ci_doc = yaml.safe_load(ci_raw)
+    perf_doc = yaml.safe_load(perf_raw)
+    assert isinstance(ci_doc, dict) and "jobs" in ci_doc
+    assert isinstance(perf_doc, dict) and "jobs" in perf_doc
+    perf_on = perf_doc.get("on") or perf_doc.get(True)
+    assert "push" in perf_on and "pull_request" in perf_on and "workflow_dispatch" in perf_on
+    push_paths = perf_on["push"]["paths"]
+    pr_paths = perf_on["pull_request"]["paths"]
+except ImportError:
+    ev_ci = extract_trigger_paths_from_text(ci_raw)
+    assert "push" in ev_ci and "pull_request" in ev_ci
+    ev_perf = extract_trigger_paths_from_text(perf_raw)
+    assert "push" in ev_perf and "pull_request" in ev_perf and "workflow_dispatch" in ev_perf
+    push_paths = ev_perf["push"]
+    pr_paths = ev_perf["pull_request"]
+
+expected_algo_paths = {
+    "znav.plugin.zsh",
+    "zsh-znav.plugin.zsh",
+    "functions/**",
+    "proofs/znav_spec.py",
+    "benchmarks/run_bench.zsh",
+    "benchmarks/info_efficiency.py",
+    "benchmarks/update_readme.py",
+}
+assert set(push_paths) == expected_algo_paths, f"push paths mismatch: {push_paths}"
+assert set(pr_paths) == expected_algo_paths, f"pull_request paths mismatch: {pr_paths}"
+
+
+def matches_any_trigger(rel_file: str, patterns: list[str]) -> bool:
+    for pat in patterns:
+        if pat.endswith("/**"):
+            prefix = pat[:-3]
+            if rel_file == prefix or rel_file.startswith(prefix + "/"):
+                return True
+        elif fnmatch.fnmatchcase(rel_file, pat):
+            return True
+    return False
+
+
+# Positive checks: algorithmic changes MUST trigger perf-autoupdate.yml
+for algo_file in (
+    "znav.plugin.zsh",
+    "zsh-znav.plugin.zsh",
+    "functions/znav",
+    "functions/_znav_chpwd",
+    "proofs/znav_spec.py",
+    "benchmarks/run_bench.zsh",
+    "benchmarks/info_efficiency.py",
+    "benchmarks/update_readme.py",
+):
+    assert matches_any_trigger(algo_file, push_paths), f"{algo_file} did not match push_paths"
+
+# Negative loop-safety checks: auto-generated perf outputs & docs MUST NEVER trigger perf-autoupdate.yml
+for non_algo_file in (
+    "README.md",
+    "benchmarks/results.md",
+    "benchmarks/results.json",
+    "docs/zsh_native_audit.md",
+    "proofs/formal_proofs.md",
+    ".github/workflows/perf-autoupdate.yml",
+    ".github/workflows/ci.yml",
+):
+    assert not matches_any_trigger(non_algo_file, push_paths), (
+        f"INFINITE LOOP RISK: {non_algo_file} matched push_paths!"
+    )
+    assert not matches_any_trigger(non_algo_file, pr_paths), (
+        f"INFINITE LOOP RISK: {non_algo_file} matched pr_paths!"
+    )
+
+# Verify ci.yml matrix & commands
+for req_ci in (
+    "macos-latest",
+    "ubuntu-latest",
+    "tests/run_tests.zsh",
+    "tests/diff_conformance.py",
+    "proofs/verify_all.py",
+    "tests/verify_zero_fork.py",
+    "git status --porcelain",
+):
+    assert req_ci in ci_raw, f"Missing '{req_ci}' in ci.yml"
+
+# Verify perf-autoupdate.yml loop guards, fork-PR guard, summary & bot commit
+assert "repository:" not in perf_raw, "checkout must default to github.repository for fork-PR safety"
+for req_perf in (
+    "github.actor != 'github-actions[bot]'",
+    "contents: write",
+    "cancel-in-progress: true",
+    "(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && github.head_ref || github.ref",
+    "GITHUB_STEP_SUMMARY",
+    "[skip ci]",
+    "git add -- README.md benchmarks/results.md benchmarks/results.json",
+):
+    assert req_perf in perf_raw, f"Missing '{req_perf}' in perf-autoupdate.yml"
+
+print("WORKFLOWS_OK")
+PYEOF
+  )
+  assert_true $? "Workflow YAML validation and infinite-loop safety checks exited 0"
+  [[ $audit_13c == *"WORKFLOWS_OK"* ]] \
+    && pass "ci.yml & perf-autoupdate.yml parse cleanly, guard all algorithmic paths, and enforce quadruple loop protection" \
+    || fail "Workflow audit failed: $audit_13c"
 }
 
 # ==============================================================================
