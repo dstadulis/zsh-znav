@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+
+jobs:
+  verify:
+    name: Zsh, Conformance & Formal Proof Verification (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Zsh and Z3 CLI (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zsh z3
+
+      - name: Install Python verification dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install z3-solver pyyaml
+
+      - name: Ensure Z3 CLI is available (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          if ! command -v z3 >/dev/null 2>&1; then
+            Z3_PKG_BIN="$(python3 -c 'import pathlib, z3; p = pathlib.Path(z3.__file__).resolve().parent / "bin"; print(p)' 2>/dev/null || true)"
+            if [ -n "${Z3_PKG_BIN}" ] && [ -x "${Z3_PKG_BIN}/z3" ]; then
+              echo "${Z3_PKG_BIN}" >> "$GITHUB_PATH"
+            else
+              HOMEBREW_NO_AUTO_UPDATE=1 brew install z3
+            fi
+          fi
+
+      - name: Run adversarial Zsh verification suite
+        run: zsh tests/run_tests.zsh
+
+      - name: Run 600+ op differential trace conformance
+        run: python3 -B tests/diff_conformance.py
+
+      - name: Run machine-checked formal proofs (Z3 + LCF kernel)
+        run: python3 -B proofs/verify_all.py
+
+      - name: Run XNU Mach kernel zero-fork proof (macOS)
+        if: runner.os == 'macOS'
+        run: python3 -B tests/verify_zero_fork.py
+
+      - name: Ensure working tree stays clean
+        run: test -z "$(git status --porcelain)"

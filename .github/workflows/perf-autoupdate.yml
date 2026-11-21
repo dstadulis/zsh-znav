@@ -1,0 +1,80 @@
+name: Auto-Update Performance Benchmarks
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "znav.plugin.zsh"
+      - "zsh-znav.plugin.zsh"
+      - "functions/**"
+      - "proofs/znav_spec.py"
+      - "benchmarks/run_bench.zsh"
+      - "benchmarks/info_efficiency.py"
+      - "benchmarks/update_readme.py"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "znav.plugin.zsh"
+      - "zsh-znav.plugin.zsh"
+      - "functions/**"
+      - "proofs/znav_spec.py"
+      - "benchmarks/run_bench.zsh"
+      - "benchmarks/info_efficiency.py"
+      - "benchmarks/update_readme.py"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: perf-autoupdate-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+
+jobs:
+  update-perf:
+    name: Benchmark & Auto-Sync README (macos-latest)
+    runs-on: macos-latest
+    if: github.event_name == 'workflow_dispatch' || github.actor != 'github-actions[bot]'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && github.head_ref || github.ref }}
+          fetch-depth: 0
+
+      - name: Ensure zoxide baseline CLI is installed
+        run: |
+          if ! command -v zoxide >/dev/null 2>&1; then
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install zoxide
+          fi
+          zoxide --version
+
+      - name: Run znav benchmark suite and sync README
+        run: |
+          zsh benchmarks/run_bench.zsh
+          python3 benchmarks/update_readme.py --check
+          cat benchmarks/results.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Auto-commit and push updated benchmark data
+        if: >-
+          github.event_name == 'push' ||
+          github.event_name == 'workflow_dispatch' ||
+          (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+        env:
+          TARGET_BRANCH: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
+        run: |
+          if git diff --quiet -- README.md benchmarks/results.md benchmarks/results.json; then
+            echo "Benchmark results unchanged; nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- README.md benchmarks/results.md benchmarks/results.json
+          git commit -m "chore(perf): auto-update benchmark results for algorithmic changes [skip ci]"
+          git pull --rebase origin "${TARGET_BRANCH}"
+          git push origin "HEAD:${TARGET_BRANCH}"
