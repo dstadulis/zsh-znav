@@ -144,6 +144,46 @@ Assigning each directory in descending $\succ$ order its earliest candidate outs
 
 ---
 
+<!-- BEGIN ZNAV_BENCHMARKS -->
+## Performance Benchmarks
+
+Measured via `zsh/datetime` `$EPOCHREALTIME` in isolated `/tmp` sandboxes on **Apple M5 Max (`arm64`)**, **macOS 26.5**, **Zsh `5.9`** (**1000 iterations** per data point after warm-up; `zoxide 0.10.0` isolated via `_ZO_DATA_DIR`). Re-run locally via `make bench` (`zsh benchmarks/run_bench.zsh`).
+
+### 1. `chpwd` Hook Wall-Clock Latency (µs / op)
+
+| Engine / Mechanism | Complexity | Forks / `cd` | $N = 50$ (µs/op) | $N = 500$ (µs/op) | $N = 2000$ (µs/op) | Speedup vs `cdr` ($N=2000$) | Speedup vs `zoxide` ($N=2000$) |
+| :--- | :---: | :---: | ---: | ---: | ---: | ---: | ---: |
+| **`znav` (`_znav_chpwd`)** | **$O(1)$ WAL** | **`0`** | **390.67** | **313.72** | **449.72** | **332.6x faster** | **16.6x faster** |
+| Zsh `cdr` (`chpwd_recent_dirs`) | $O(N)$ rewrite | `0` | 523.74 | 12946.20 | 149591.11 | 1.0x | 0.0x |
+| Minimal External-Fork Floor (`/usr/bin/true`) | $O(1)$ no-op | `1` | 1358.87 | 1256.58 | 1375.50 | — | — |
+| `zoxide 0.10.0` (`__zoxide_hook`) | External DB | `2` + `1 exec` | 7256.80 | 7419.21 | 7472.95 | — | 1.0x |
+
+### 2. Jump & Inline Path Expansion Latency (µs / op at $N = 500$)
+
+| Operation | Mechanism | Works in Arbitrary Path Args (`vim ...`)? | Forks / Op | Latency (µs/op) | Relative to External Jump |
+| :--- | :--- | :---: | :---: | ---: | ---: |
+| **`~cr` (`znav` static named dir)** | **Zsh C `nameddirtab` hash lookup** | **Yes (`vim ~cr/f`)** | **`0`** | **0.17** | **89486.8x faster** |
+| **`~[cr]` (`znav` dynamic hook)** | **`_znav_directory_name n` hook** | **Yes (`vim ~[cr]/f`)** | **`0`** | **24.83** | **612.7x faster** |
+| **`cd ~cr` (jump + `znav` `chpwd`)** | **C `nameddirtab` + `builtin cd` + WAL** | **Yes (bare `cr` w/ `AUTO_CD`)** | **`0`** | **322.35** | **47.2x faster** |
+| **`j cr` (`znav` CLI jump + `chpwd`)** | **`resolve(cr)` + `builtin cd` + WAL** | `cd` jump (+ subpath `j cr sub`) | **`0`** | **394.85** | **38.5x faster** |
+| `~[1]` (`zsh_directory_name_cdr`) | Re-reads & lexes `.chpwd-recent-dirs` | Yes (unstable index!) | `0` | 2677.65 | — |
+| `cdr 1` (jump + `cdr` `chpwd`) | $O(N)$ read + `cd` + $O(N)$ rewrite | `cd` jump | `0` | 15744.74 | — |
+| Minimal External-Fork Jump Floor | `$(/bin/echo $dir) && cd -q` | No | `1` | 1308.16 | — |
+| `zoxide 0.10.0` (`z <query>`) | 3 subshells + `zoxide query` + `zoxide add` | No | `5` + `2 exec` | 15212.76 | 1.0x |
+
+### 3. Empirical Information Efficiency & Recall Churn (`Zipf(s = 1.2)`)
+
+| Tree Size $N$ | Shannon $H_2(P)$ (bits) | Entropy Min Cmd $H_{36}(P)+1$ (keys) | **`znav` Bare `cr\n` / `~cr` (keys)** | **`znav` `j cr\n` (keys)** | `cd ~/...\n` Full Path (keys) | Manual Top-10 Aliases + Tail (keys) | `cdr <k>\n` Default Max-20 (keys) | **`znav` Recall Churn (%)** | **`cdr` Recall Churn (%)** |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| **30** | 3.70 b | 1.71 | **3.17** *(code: 2.17 ch)* | **5.17** | 30.27 | 9.65 *(tail: 19.6%)* | 9.52 *(unb: 6.03)* | **0.00%** | **89.46%** |
+| **100** | 4.65 b | 1.90 | **3.22** *(code: 2.22 ch)* | **5.22** | 30.89 | 13.33 *(tail: 31.5%)* | 16.16 *(unb: 6.37)* | **0.39%** | **92.73%** |
+| **500** | 5.70 b | 2.10 | **3.28** *(code: 2.28 ch)* | **5.28** | 31.25 | 16.00 *(tail: 40.5%)* | 20.46 *(unb: 7.74)* | **1.98%** | **95.29%** |
+
+Full methodology, baseline configurations, and ergonomic breakdown: [`benchmarks/results.md`](benchmarks/results.md) (machine-readable data: [`benchmarks/results.json`](benchmarks/results.json)).
+<!-- END ZNAV_BENCHMARKS -->
+
+---
+
 ## CLI & Configuration Reference
 
 ### Commands ([functions/znav](functions/znav))
@@ -177,17 +217,17 @@ Assigning each directory in descending $\succ$ order its earliest candidate outs
 
 ## Verification & Benchmarks
 
-- **Adversarial & XNU Mach Zero-Fork Test Suite**:
+- **Adversarial & XNU Mach Zero-Fork Test Suite** (`make test`):
   ```zsh
   zsh tests/run_tests.zsh
   python3 tests/verify_zero_fork.py
   python3 tests/diff_conformance.py
   ```
-- **Machine-Checked Formal Proofs**:
+- **Machine-Checked Formal Proofs** (`make proof`):
   ```zsh
   python3 proofs/verify_all.py
   ```
-- **Latency & Information-Efficiency Benchmarks**:
+- **Latency & Information-Efficiency Benchmarks + README Auto-Sync** (`make bench`):
   ```zsh
   zsh benchmarks/run_bench.zsh
   ```

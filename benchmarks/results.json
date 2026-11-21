@@ -1,0 +1,203 @@
+{
+  "schema_version": 1,
+  "environment": {
+    "hardware": "Apple M5 Max",
+    "arch": "arm64",
+    "os": "macOS 26.5",
+    "zsh_version": "5.9",
+    "zsh_bin": "/bin/zsh",
+    "zoxide_available": true,
+    "zoxide_version": "zoxide 0.10.0",
+    "iterations": 1000
+  },
+  "chpwd_latency_us": {
+    "50": {
+      "znav": 390.67,
+      "cdr": 523.74,
+      "fork_floor": 1358.87,
+      "zoxide": 7256.8
+    },
+    "500": {
+      "znav": 313.72,
+      "cdr": 12946.2,
+      "fork_floor": 1256.58,
+      "zoxide": 7419.21
+    },
+    "2000": {
+      "znav": 449.72,
+      "cdr": 149591.11,
+      "fork_floor": 1375.5,
+      "zoxide": 7472.95,
+      "speedup_vs_cdr": "332.6x",
+      "speedup_vs_zoxide": "16.6x",
+      "cdr_vs_zoxide": "0.0x"
+    }
+  },
+  "jump_latency_us": {
+    "n_dirs": 500,
+    "tilde_static": 0.17,
+    "tilde_dynamic": 24.83,
+    "cd_tilde": 322.35,
+    "jump_j": 394.85,
+    "cdr_dynamic": 2677.65,
+    "cdr_jump": 15744.74,
+    "ext_jump_floor": 1308.16,
+    "zoxide_jump": 15212.76,
+    "external_baseline": "zoxide",
+    "speedups_vs_external": {
+      "tilde_static": "89486.8x",
+      "tilde_dynamic": "612.7x",
+      "cd_tilde": "47.2x",
+      "jump_j": "38.5x"
+    }
+  },
+  "info_efficiency": {
+    "zipf_s": 1.2,
+    "warmup_steps": 1500,
+    "trace_steps": 5000,
+    "alphabet_size": 36,
+    "trees": [
+      {
+        "N": 30,
+        "H_bits": 3.7,
+        "H_36_chars": 0.71,
+        "H_36_bare_cmd_lb": 1.71,
+        "znav_exp_code_len": 2.17,
+        "znav_exp_ks_bare": 3.17,
+        "znav_exp_ks_tilde": 3.17,
+        "znav_exp_ks_j": 5.17,
+        "znav_recall_churn_pct": 0.0,
+        "znav_top10_step_churn_pct": 0.0,
+        "full_cd_exp_ks": 30.27,
+        "manual10_exp_ks": 9.65,
+        "manual10_tail_pct": 19.6,
+        "manual10_maint_chars": 480,
+        "cdr_default20_exp_ks": 9.52,
+        "cdr_unbounded_exp_ks": 6.03,
+        "cdr_recall_churn_pct": 89.46,
+        "cdr_step_mut_pct": 100.0,
+        "sample_top5_codes": [
+          {
+            "dir": "~/CODE.REPOSITORIES",
+            "code": "cr",
+            "prob_pct": 32.6
+          },
+          {
+            "dir": "~/SCRIPT.REPOS",
+            "code": "sr",
+            "prob_pct": 14.19
+          },
+          {
+            "dir": "~/CODE.REPOSITORIES/znav",
+            "code": "zn",
+            "prob_pct": 8.72
+          },
+          {
+            "dir": "~/CODE.REPOSITORIES/code-verification",
+            "code": "cv",
+            "prob_pct": 6.18
+          },
+          {
+            "dir": "~/CODE.REPOSITORIES/foss-agentic-forge",
+            "code": "faf",
+            "prob_pct": 4.73
+          }
+        ]
+      },
+      {
+        "N": 100,
+        "H_bits": 4.65,
+        "H_36_chars": 0.9,
+        "H_36_bare_cmd_lb": 1.9,
+        "znav_exp_code_len": 2.22,
+        "znav_exp_ks_bare": 3.22,
+        "znav_exp_ks_tilde": 3.22,
+        "znav_exp_ks_j": 5.22,
+        "znav_recall_churn_pct": 0.39,
+        "znav_top10_step_churn_pct": 0.0,
+        "full_cd_exp_ks": 30.89,
+        "manual10_exp_ks": 13.33,
+        "manual10_tail_pct": 31.5,
+        "manual10_maint_chars": 480,
+        "cdr_default20_exp_ks": 16.16,
+        "cdr_unbounded_exp_ks": 6.37,
+        "cdr_recall_churn_pct": 92.73,
+        "cdr_step_mut_pct": 100.0,
+        "sample_top5_codes": [
+          {
+            "dir": "~/CODE.REPOSITORIES",
+            "code": "cr",
+            "prob_pct": 27.75
+          },
+          {
+            "dir": "~/SCRIPT.REPOS",
+            "code": "sr",
+            "prob_pct": 12.08
+          },
+          {
+            "dir": "~/CODE.REPOSITORIES/znav",
+            "code": "zn",
+            "prob_pct": 7.43
+          },
+          {
+            "dir": "~/CODE.REPOSITORIES/code-verification",
+            "code": "cv",
+            "prob_pct": 5.26
+          },
+          {
+            "dir": "~/CODE.REPOSITORIES/foss-agentic-forge",
+            "code": "faf",
+            "prob_pct": 4.02
+          }
+        ]
+      },
+      {
+        "N": 500,
+        "H_bits": 5.7,
+        "H_36_chars": 1.1,
+        "H_36_bare_cmd_lb": 2.1,
+        "znav_exp_code_len": 2.28,
+        "znav_exp_ks_bare": 3.28,
+        "znav_exp_ks_tilde": 3.28,
+        "znav_exp_ks_j": 5.28,
+        "znav_recall_churn_pct": 1.98,
+        "znav_top10_step_churn_pct": 0.0,
+        "full_cd_exp_ks": 31.25,
+        "manual10_exp_ks": 16.0,
+        "manual10_tail_pct": 40.5,
+        "manual10_maint_chars": 480,
+        "cdr_default20_exp_ks": 20.46,
+        "cdr_unbounded_exp_ks": 7.74,
+        "cdr_recall_churn_pct": 95.29,
+        "cdr_step_mut_pct": 100.0,
+        "sample_top5_codes": [
+          {
+            "dir": "~/CODE.REPOSITORIES",
+            "code": "cr",
+            "prob_pct": 24.1
+          },
+          {
+            "dir": "~/SCRIPT.REPOS",
+            "code": "sr",
+            "prob_pct": 10.49
+          },
+          {
+            "dir": "~/CODE.REPOSITORIES/znav",
+            "code": "zn",
+            "prob_pct": 6.45
+          },
+          {
+            "dir": "~/CODE.REPOSITORIES/code-verification",
+            "code": "cv",
+            "prob_pct": 4.57
+          },
+          {
+            "dir": "~/CODE.REPOSITORIES/foss-agentic-forge",
+            "code": "faf",
+            "prob_pct": 3.49
+          }
+        ]
+      }
+    ]
+  }
+}
