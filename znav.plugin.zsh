@@ -33,8 +33,10 @@
   typeset -g ZNAV_AVOID_COMMANDS=${ZNAV_AVOID_COMMANDS:-1}
   typeset -g ZNAV_CMD=${ZNAV_CMD:-j}
   typeset -g ZNAV_PROMPT_DYNAMIC=${ZNAV_PROMPT_DYNAMIC:-0}
+  typeset -g ZNAV_P10K_PROMPT=${ZNAV_P10K_PROMPT:-both}
   typeset -g ZNAV_AUTO_SEED=${ZNAV_AUTO_SEED:-1}
   typeset -g ZNAV_CDABLE_VARS=${ZNAV_CDABLE_VARS:-1}
+  typeset -g ZNAV_PWD_CODE=""
 
   # Internal global engine state.
   typeset -g  REPLY=""
@@ -43,16 +45,21 @@
   typeset -gA _ZNAV_DIR2CODE=()
   typeset -gA _ZNAV_CODE2DIR=()
   typeset -gA _ZNAV_OWNED_NAMEDDIRS=()
+  typeset -gA _ZNAV_P10K_SAVED_ND=()
   typeset -gA _ZNAV_USER_CACHE=()
   typeset -gA _ZNAV_CAND_CACHE=()
   typeset -gA _ZNAV_TOP_POS=()
   typeset -ga _ZNAV_TOP_DIRS=()
   typeset -ga _ZNAV_RANKED_DIRS=()
+  typeset -g  _ZNAV_HOME_RAW=""
+  typeset -g  _ZNAV_HOME_CANON=""
   typeset -gi _ZNAV_WAL_LINES=0
   typeset -gi _ZNAV_CACHE_VALID=0
   typeset -gi _ZNAV_ALL_DIRTY=1
   typeset -gi _ZNAV_LAST_SCORE_COUNT=-1
   typeset -gi _ZNAV_LAST_AVOID_CMDS=-1
+  typeset -gi _ZNAV_LAST_MAX_NAMEDDIRS=-1
+  typeset -gi _ZNAV_P10K_AUTO_INJECTED=0
 } "${(%):-%x}"
 
 # ---------------------------------------------------------------------------
@@ -92,6 +99,43 @@ _znav_ensure_data_dir() {
   emulate -L zsh
   setopt extended_glob warn_create_global typeset_silent no_short_loops
   [[ -d $ZNAV_DATA_DIR ]] || zf_mkdir -p -- "$ZNAV_DATA_DIR"
+}
+
+_znav_update_pwd_code() {
+  # Updates public scalar ZNAV_PWD_CODE in O(1) time with 0 forks.
+  # Optional $1: pre-canonicalized PWD path (avoids second :A lookup on chpwd).
+  emulate -L zsh
+  setopt extended_glob warn_create_global typeset_silent no_short_loops
+  local _canon=${1:-}
+  if [[ -z $_canon ]]; then
+    local _raw=${PWD:-}
+    if [[ -z $_raw ]]; then
+      typeset -g ZNAV_PWD_CODE=""
+      return 0
+    fi
+    _canon=${_raw:A}
+    [[ $_canon != / ]] && _canon=${_canon%/}
+    [[ -z $_canon ]] && _canon=/
+  fi
+  if [[ -n ${HOME:-} ]]; then
+    if [[ $HOME != ${_ZNAV_HOME_RAW:-} ]]; then
+      typeset -g _ZNAV_HOME_RAW=$HOME
+      local _hc=${HOME:A}
+      [[ $_hc != / ]] && _hc=${_hc%/}
+      typeset -g _ZNAV_HOME_CANON=${_hc:-/}
+    fi
+    if [[ $_canon == $_ZNAV_HOME_CANON ]]; then
+      typeset -g ZNAV_PWD_CODE=""
+      return 0
+    fi
+  fi
+  local _c=${_ZNAV_DIR2CODE[$_canon]:-}
+  if (( $+_ZNAV_SCORE[$_canon] && $+_ZNAV_TOP_POS[$_canon] )) && [[ -n $_c && ${_ZNAV_CODE2DIR[$_c]:-} == $_canon && ${nameddirs[$_c]:-} == $_canon ]]; then
+    typeset -g ZNAV_PWD_CODE=$_c
+  else
+    typeset -g ZNAV_PWD_CODE=""
+  fi
+  return 0
 }
 
 # ---------------------------------------------------------------------------
@@ -578,6 +622,8 @@ _znav_rebuild_projections() {
   _ZNAV_ALL_DIRTY=0
   _ZNAV_LAST_SCORE_COUNT=${#_ZNAV_SCORE}
   _ZNAV_LAST_AVOID_CMDS=$(( ZNAV_AVOID_COMMANDS ? 1 : 0 ))
+  _ZNAV_LAST_MAX_NAMEDDIRS=$_max
+  _znav_update_pwd_code
 }
 
 _znav_sync_visit() {
@@ -586,8 +632,9 @@ _znav_sync_visit() {
   emulate -L zsh
   setopt extended_glob warn_create_global typeset_silent no_short_loops
   local _d=$1
+  integer _max=$(( ZNAV_MAX_NAMEDDIRS > 0 ? ZNAV_MAX_NAMEDDIRS : 0 ))
 
-  if (( !_ZNAV_CACHE_VALID || _ZNAV_LAST_AVOID_CMDS != (ZNAV_AVOID_COMMANDS ? 1 : 0) )); then
+  if (( !_ZNAV_CACHE_VALID || _ZNAV_LAST_AVOID_CMDS != (ZNAV_AVOID_COMMANDS ? 1 : 0) || _ZNAV_LAST_MAX_NAMEDDIRS != _max )); then
     _znav_rebuild_projections
     return 0
   fi
@@ -598,7 +645,6 @@ _znav_sync_visit() {
     return 0
   fi
 
-  integer _max=$(( ZNAV_MAX_NAMEDDIRS > 0 ? ZNAV_MAX_NAMEDDIRS : 0 ))
   if (( _max == 0 )); then
     _ZNAV_ALL_DIRTY=1
     return 0
@@ -662,6 +708,11 @@ _znav_sync_visit() {
   # Evict (M+1)-th entry if insertion overflowed _max
   if (( ${#_ZNAV_TOP_DIRS} > _max )); then
     local _evicted=${_ZNAV_TOP_DIRS[_max+1]}
+    local _ev_code=${_ZNAV_DIR2CODE[$_evicted]:-}
+    if [[ -n $_ev_code && ${_ZNAV_CODE2DIR[$_ev_code]:-} == $_evicted ]]; then
+      unset "_ZNAV_CODE2DIR[$_ev_code]"
+    fi
+    _ZNAV_DIR2CODE=("${(@kv)_ZNAV_DIR2CODE[(I)^${(b)_evicted}]}")
     _ZNAV_TOP_POS=("${(@kv)_ZNAV_TOP_POS[(I)^${(b)_evicted}]}")
     _ZNAV_TOP_DIRS=("${_ZNAV_TOP_DIRS[1,_max]}")
     _ZNAV_ALL_DIRTY=1
@@ -721,7 +772,8 @@ _znav_sync_visit() {
 _znav_ensure_full_bijection() {
   emulate -L zsh
   setopt extended_glob warn_create_global typeset_silent no_short_loops
-  if (( !_ZNAV_CACHE_VALID || _ZNAV_ALL_DIRTY || _ZNAV_LAST_SCORE_COUNT != ${#_ZNAV_SCORE} || _ZNAV_LAST_AVOID_CMDS != (ZNAV_AVOID_COMMANDS ? 1 : 0) )); then
+  integer _max=$(( ZNAV_MAX_NAMEDDIRS > 0 ? ZNAV_MAX_NAMEDDIRS : 0 ))
+  if (( !_ZNAV_CACHE_VALID || _ZNAV_ALL_DIRTY || _ZNAV_LAST_SCORE_COUNT != ${#_ZNAV_SCORE} || _ZNAV_LAST_AVOID_CMDS != (ZNAV_AVOID_COMMANDS ? 1 : 0) || _ZNAV_LAST_MAX_NAMEDDIRS != _max )); then
     _znav_rebuild_projections
   fi
 }
@@ -911,6 +963,7 @@ _znav_prune_missing() {
     fi
   done
   if (( ${#_dead} == 0 )); then
+    _znav_update_pwd_code
     REPLY=0
     return 0
   fi
@@ -1098,8 +1151,206 @@ _znav_seed_roots() {
 
   if (( _added > 0 || !_ZNAV_CACHE_VALID )); then
     _znav_rebuild_projections
+  else
+    _znav_update_pwd_code
   fi
   REPLY=$_added
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# Powerlevel10k Zero-Fork Full-Path + Shortcode Prompt Integration
+# ---------------------------------------------------------------------------
+
+_znav_p10k_stash_nameddirs() {
+  # Temporarily removes znav-owned entries from $nameddirs (preserving manual user hash -d).
+  emulate -L zsh
+  setopt extended_glob warn_create_global typeset_silent no_short_loops
+  _ZNAV_P10K_SAVED_ND=()
+  local _k _v
+  for _k _v in "${(@kv)_ZNAV_OWNED_NAMEDDIRS}"; do
+    if [[ ${nameddirs[$_k]:-} == $_v ]]; then
+      _ZNAV_P10K_SAVED_ND[$_k]=$_v
+    fi
+  done
+  if (( ${#_ZNAV_P10K_SAVED_ND} > 0 )); then
+    builtin unhash -d -- "${(@k)_ZNAV_P10K_SAVED_ND}" 2>/dev/null || true
+  fi
+}
+
+_znav_p10k_unstash_nameddirs() {
+  # Unconditionally restores stashed znav-owned entries into $nameddirs.
+  emulate -L zsh
+  setopt extended_glob warn_create_global typeset_silent no_short_loops
+  if (( ${#_ZNAV_P10K_SAVED_ND} > 0 )); then
+    local -a _pairs=()
+    local _k _v
+    for _k _v in "${(@kv)_ZNAV_P10K_SAVED_ND}"; do
+      _pairs+=("${_k}=${_v}")
+    done
+    builtin hash -d -- "${_pairs[@]}"
+    _ZNAV_P10K_SAVED_ND=()
+  fi
+}
+
+prompt_znav() {
+  if (( ! ${_znav_in_instant:-0} )); then
+    case ${ZNAV_P10K_PROMPT:-both} in
+      path|off) return 0 ;;
+    esac
+    _znav_update_pwd_code
+  fi
+  (( ${+functions[p10k]} )) || return 0
+  p10k segment \
+    -b "${POWERLEVEL9K_ZNAV_BACKGROUND-0}" \
+    -f "${POWERLEVEL9K_ZNAV_FOREGROUND-3}" \
+    -c '$ZNAV_PWD_CODE' \
+    -e \
+    -t '~$ZNAV_PWD_CODE'
+}
+
+instant_prompt_znav() {
+  local -i _znav_in_instant=1
+  prompt_znav
+}
+
+_znav_p10k_wrap_prompt_dir() {
+  emulate -L zsh
+  setopt extended_glob warn_create_global typeset_silent no_short_loops
+  if (( $+functions[prompt_dir] )) && [[ $functions[prompt_dir] != *_znav_orig_prompt_dir* ]]; then
+    functions[_znav_orig_prompt_dir]="0=prompt_dir"$'\n'"$functions[prompt_dir]"
+    prompt_dir() {
+      case ${ZNAV_P10K_PROMPT:-both} in
+        off)
+          _znav_orig_prompt_dir "$@"
+          return $?
+          ;;
+        shortcode)
+          if [[ -z ${funcstack[(r)instant_prompt_dir]:-} ]]; then
+            _znav_update_pwd_code
+            [[ -n ${ZNAV_PWD_CODE:-} ]] && return 0
+          fi
+          ;;
+      esac
+      local _znav_rc=0
+      _znav_p10k_stash_nameddirs
+      {
+        local ZNAV_PROMPT_DYNAMIC=0
+        _znav_orig_prompt_dir "$@"
+        _znav_rc=$?
+      } always {
+        _znav_p10k_unstash_nameddirs
+      }
+      return $_znav_rc
+    }
+  fi
+}
+
+_znav_p10k_reconcile() {
+  # Idempotently reconciles prompt_dir wrapper, znav prompt element injection,
+  # and Powerlevel10k ephemeral dir cache according to $ZNAV_P10K_PROMPT.
+  emulate -L zsh
+  setopt extended_glob warn_create_global typeset_silent no_short_loops
+  local _mode=${ZNAV_P10K_PROMPT:-both}
+  integer _changed=0
+
+  _znav_p10k_wrap_prompt_dir
+
+  if [[ $_mode == (both|shortcode) ]]; then
+    if (( $+parameters[POWERLEVEL9K_LEFT_PROMPT_ELEMENTS] || $+parameters[POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS] )); then
+      local -a _left=() _right=()
+      (( $+parameters[POWERLEVEL9K_LEFT_PROMPT_ELEMENTS] )) && _left=("${POWERLEVEL9K_LEFT_PROMPT_ELEMENTS[@]}")
+      (( $+parameters[POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS] )) && _right=("${POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS[@]}")
+      if (( ! ${_left[(I)znav(|_joined)]} && ! ${_right[(I)znav(|_joined)]} )); then
+        integer _lidx=${_left[(i)dir(|_joined)]}
+        if (( _lidx <= ${#_left} )); then
+          if (( _lidx < ${#_left} )); then
+            typeset -ga POWERLEVEL9K_LEFT_PROMPT_ELEMENTS=(
+              "${(@)_left[1,_lidx]}"
+              znav
+              "${(@)_left[_lidx+1,-1]}"
+            )
+          else
+            typeset -ga POWERLEVEL9K_LEFT_PROMPT_ELEMENTS=(
+              "${(@)_left}"
+              znav
+            )
+          fi
+          _ZNAV_P10K_AUTO_INJECTED=1
+          _changed=1
+        else
+          integer _ridx=${_right[(i)dir(|_joined)]}
+          if (( _ridx <= ${#_right} )); then
+            if (( _ridx < ${#_right} )); then
+              typeset -ga POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS=(
+                "${(@)_right[1,_ridx]}"
+                znav
+                "${(@)_right[_ridx+1,-1]}"
+              )
+            else
+              typeset -ga POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS=(
+                "${(@)_right}"
+                znav
+              )
+            fi
+            _ZNAV_P10K_AUTO_INJECTED=1
+            _changed=1
+          fi
+        fi
+      fi
+    elif (( $+functions[p10k] )) && [[ -n "${parameters[(I)POWERLEVEL9K_*~POWERLEVEL9K_(MODE|CONFIG_FILE|GITSTATUS_DIR)]}" || ${__p9k_configured:-0} -ne 0 ]]; then
+      typeset -ga POWERLEVEL9K_LEFT_PROMPT_ELEMENTS=(context dir znav vcs)
+      _ZNAV_P10K_AUTO_INJECTED=1
+      _changed=1
+    fi
+  elif (( _ZNAV_P10K_AUTO_INJECTED )); then
+    if (( $+parameters[POWERLEVEL9K_LEFT_PROMPT_ELEMENTS] && ${POWERLEVEL9K_LEFT_PROMPT_ELEMENTS[(Ie)znav]} )); then
+      typeset -ga POWERLEVEL9K_LEFT_PROMPT_ELEMENTS=("${(@)POWERLEVEL9K_LEFT_PROMPT_ELEMENTS:#znav}")
+      _changed=1
+    fi
+    if (( $+parameters[POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS] && ${POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS[(Ie)znav]} )); then
+      typeset -ga POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS=("${(@)POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS:#znav}")
+      _changed=1
+    fi
+    _ZNAV_P10K_AUTO_INJECTED=0
+  fi
+
+  if (( $+parameters[_p9k__cache_ephemeral] )); then
+    _p9k__cache_ephemeral=()
+  fi
+
+  REPLY=$_changed
+  return 0
+}
+
+_znav_p10k_setup() {
+  # Installs idempotent Powerlevel10k wrappers (prompt_dir + p10k reload hook)
+  # and reconciles segment elements without console output or forks.
+  emulate -L zsh
+  setopt extended_glob warn_create_global typeset_silent no_short_loops
+
+  # Avoid wrapping the temporary instant-prompt p10k stub before powerlevel10k.zsh-theme loads.
+  if (( $+functions[p10k] )) && [[ $functions[p10k] != *_znav_orig_p10k* ]] && { (( ! $+__p9k_instant_prompt_active )) || (( $+functions[prompt_dir] )); }; then
+    functions[_znav_orig_p10k]="0=p10k"$'\n'"$functions[p10k]"
+    p10k() {
+      if [[ ${1:-} == reload && $# -eq 1 ]]; then
+        _znav_p10k_reconcile
+      fi
+      _znav_orig_p10k "$@"
+    }
+  fi
+
+  if [[ ${ZNAV_P10K_PROMPT:-both} == off ]] && (( ! _ZNAV_P10K_AUTO_INJECTED )); then
+    return 0
+  fi
+
+  if (( $+functions[p10k] || $+functions[prompt_dir] || $+parameters[POWERLEVEL9K_LEFT_PROMPT_ELEMENTS] || $+parameters[POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS] )); then
+    if (( $+__p9k_instant_prompt_active && ! $+functions[prompt_dir] )); then
+      return 0
+    fi
+    _znav_p10k_reconcile
+    (( $+_p9k__force_must_init )) && _p9k__force_must_init=1
+  fi
   return 0
 }
 
@@ -1115,6 +1366,9 @@ _znav_seed_roots() {
 
   add-zsh-hook chpwd _znav_chpwd
   add-zsh-hook precmd _znav_precmd_once
+  if (( ${precmd_functions[(Ie)_p9k_precmd]} )); then
+    typeset -ga precmd_functions=(_znav_precmd_once "${(@)precmd_functions:#_znav_precmd_once}")
+  fi
   add-zsh-hook zshexit _znav_zshexit
   add-zsh-hook zsh_directory_name _znav_directory_name
 
@@ -1144,6 +1398,9 @@ _znav_seed_roots() {
   else
     _znav_rebuild_projections
   fi
+
+  # Reconcile Powerlevel10k integration immediately if Powerlevel10k loaded before znav
+  _znav_p10k_setup
 }
 
 # Persist CDABLE_VARS in caller scope when ZNAV_CDABLE_VARS=1 (default) so bare

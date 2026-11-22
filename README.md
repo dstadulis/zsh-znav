@@ -142,6 +142,12 @@ Assigning each directory in descending $\succ$ order its earliest candidate outs
 - **$O(1)$ Top-$M$ Maintenance**: By Time-Translation Order Invariance, visiting directory $d$ can only increase $\Lambda_d$; relative order among all other $N - 1$ directories is invariant. `_znav_sync_visit` checks $d$ against its predecessor in `_ZNAV_TOP_DIRS` (or the $M$-th threshold guardian) in $O(1)$ time independent of total database size $N$, updating only affected ranks $\ge \text{new\_pos}$ by No-Hijack Prefix Stability.
 - **Zero-Fork Atomic Persistence (`zsh/files`)**: `chpwd` appends a single ANSI-C quoted delta (`V <t_E17> $'...'`) to `wal.log`. When `wal.log` exceeds $2N + 64$ lines (or on `zshexit` / `znav compact`), `znav` acquires an atomic kernel directory mutex (`zf_mkdir compact.lock`), rotates `wal.log` via `zf_mv`, folds `db.tsv` + `wal.log` via commutative $\oplus_\tau$, and atomically renames `db.tsv.tmp.$$` $\to$ `db.tsv` via `zf_mv`—losing zero visits across concurrent shells and surviving arbitrary paths containing spaces, quotes, newlines, brackets `dir[1]*?(glob)`, `$()`, and leading hyphens.
 
+### 4. Zero-Fork Powerlevel10k Full-Path + Shortcode Prompt Integration
+By default, Zsh's `%~` prompt escape contracts `$PWD` to the longest matching entry in `nameddirtab` (`~zz`), which would otherwise replace Powerlevel10k's `dir` segment (`~/CODE.REPOSITORIES/zsh-znav`) with *only* `~zz`.
+- **`$ZNAV_PWD_CODE` ($O(1)$ Prompt State)**: Maintained in $O(1)$ time (`0` forks) across bootstrap, `chpwd`, `seed`, `import`, `compact`, `prune`, and `_znav_precmd_once` (`"zz"` inside `~/CODE.REPOSITORIES/zsh-znav`, or `""` in `$HOME` and unmapped directories).
+- **Readable `dir` + Native `znav` Segment (`ZNAV_P10K_PROMPT=both`)**: When Powerlevel10k is active, `zsh-znav` wraps `prompt_dir` in an `{ ... } always { ... }` block that temporarily masks `_ZNAV_OWNED_NAMEDDIRS` (preserving manual user `hash -d` entries and `POWERLEVEL9K_SHORTEN_STRATEGY=truncate_to_unique` path shortening while keeping `hash -d` active on the command line for `0.17 µs` `~zz` and bare `zz` navigation) and injects a zero-fork `prompt_znav` segment (`~$ZNAV_PWD_CODE`) immediately after `dir`—surviving `.zshrc` load order, `p10k-instant-prompt`, and mid-session `source ~/.p10k.zsh` / `p10k reload` reloads.
+- **Custom Styling**: Override `POWERLEVEL9K_ZNAV_BACKGROUND` (default `0`) and `POWERLEVEL9K_ZNAV_FOREGROUND` (default `3`) in `~/.p10k.zsh`, or set `ZNAV_P10K_PROMPT` to `both` *(default)*, `shortcode`, `path`, or `off`.
+
 ---
 
 <!-- BEGIN ZNAV_BENCHMARKS -->
@@ -211,6 +217,8 @@ Full methodology, baseline configurations, and ergonomic breakdown: [`benchmarks
 | `ZNAV_CDABLE_VARS` | `1` | Enable `CDABLE_VARS` on plugin load (`0` to leave caller's `CDABLE_VARS` untouched) |
 | `ZNAV_CMD` | `j` | Jump command name (`none` or `""` to disable wrapper function) |
 | `ZNAV_PROMPT_DYNAMIC` | `0` | `%~` mode `d` contraction: `0` (clean / static `~cr`), `1` (`~[cr]`), `fallback` |
+| `ZNAV_P10K_PROMPT` | `both` | Powerlevel10k prompt mode: `both` (readable `dir` + `~code` segment), `shortcode`, `path`, `off` |
+| `ZNAV_PWD_CODE` | `""` *(read-only state)* | Active $O(1)$ shortcode of `${PWD:A}` (`""` when `$PWD == $HOME` or unmapped) |
 | `ZNAV_AUTO_SEED` | `1` | Automatically seed `$HOME` depth-1 subdirectories when database is empty |
 
 ---
