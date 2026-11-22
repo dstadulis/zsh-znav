@@ -2,8 +2,8 @@
 
 ## Benchmark Environment & Methodology
 
-- **Hardware**: Apple M5 Max (`arm64`)
-- **Operating System**: macOS 26.5
+- **Hardware**: Apple M2 Pro (Virtual) (`arm64`)
+- **Operating System**: macOS 26.7.2
 - **Shell**: `/bin/zsh` `5.9` (isolated `/tmp` sandboxes via `zsh -dfi +Z +m`, host state untouched)
 - **Timing Source**: `zsh/datetime` `$EPOCHREALTIME` (nanosecond-resolution monotonic-scale clock) averaged over **1000 iterations** per data point after warm-up.
 - **Baselines**:
@@ -18,14 +18,14 @@
 
 | Engine / Mechanism | Complexity | Forks / `cd` | $N = 50$ (µs/op) | $N = 500$ (µs/op) | $N = 2000$ (µs/op) | Speedup vs `cdr` ($N=2000$) | Speedup vs `zoxide` ($N=2000$) |
 | :--- | :---: | :---: | ---: | ---: | ---: | ---: | ---: |
-| **`znav` (`_znav_chpwd`)** | **$O(1)$ WAL** | **`0`** | **390.67** | **313.72** | **449.72** | **332.6x faster** | **16.6x faster** |
-| Zsh `cdr` (`chpwd_recent_dirs`) | $O(N)$ rewrite | `0` | 523.74 | 12946.20 | 149591.11 | 1.0x | 0.0x |
-| Minimal External-Fork Floor (`/usr/bin/true`) | $O(1)$ no-op | `1` | 1358.87 | 1256.58 | 1375.50 | — | — |
-| `zoxide 0.10.0` (`__zoxide_hook`) | External DB | `2` + `1 exec` | 7256.80 | 7419.21 | 7472.95 | — | 1.0x |
+| **`znav` (`_znav_chpwd`)** | **$O(1)$ WAL** | **`0`** | **546.78** | **451.59** | **654.45** | **325.6x faster** | **4.9x faster** |
+| Zsh `cdr` (`chpwd_recent_dirs`) | $O(N)$ rewrite | `0` | 807.36 | 17144.00 | 213119.49 | 1.0x | 0.0x |
+| Minimal External-Fork Floor (`/usr/bin/true`) | $O(1)$ no-op | `1` | 1240.18 | 1252.64 | 1284.41 | — | — |
+| `zoxide 0.10.0` (`__zoxide_hook`) | External DB | `2` + `1 exec` | 3065.22 | 3235.01 | 3228.90 | — | 1.0x |
 
 **Key Takeaways**:
 1. **True $O(1)$ Scaling**: As the tracked workspace grows $40\times$ from $N = 50 \to 2000$, `cdr` degrades linearly due to re-slurping, `${(z)}`-lexing, and rewriting all $N$ lines on every directory change, whereas `znav` appends a single constant-size `V <t> <dir>` record to its WAL.
-2. **Faster Than Empty `fork`+`exec`**: Pure-Zsh `znav` completes its entire IEEE-754 transcendental frecency update, shortcode check, and disk WAL append in a fraction of the time it takes the kernel merely to `fork` + `execve` `/usr/bin/true`—and outpaces compiled Rust `zoxide 0.10.0` by **16.6x** on every `cd`.
+2. **Faster Than Empty `fork`+`exec`**: Pure-Zsh `znav` completes its entire IEEE-754 transcendental frecency update, shortcode check, and disk WAL append in a fraction of the time it takes the kernel merely to `fork` + `execve` `/usr/bin/true`—and outpaces compiled Rust `zoxide 0.10.0` by **4.9x** on every `cd`.
 
 ---
 
@@ -33,14 +33,14 @@
 
 | Operation | Mechanism | Works in Arbitrary Path Args (`vim ...`)? | Forks / Op | Latency (µs/op) | Relative to External Jump |
 | :--- | :--- | :---: | :---: | ---: | ---: |
-| **`~cr` (`znav` static named dir)** | **Zsh C `nameddirtab` hash lookup** | **Yes (`vim ~cr/f`)** | **`0`** | **0.17** | **89486.8x faster** |
-| **`~[cr]` (`znav` dynamic hook)** | **`_znav_directory_name n` hook** | **Yes (`vim ~[cr]/f`)** | **`0`** | **24.83** | **612.7x faster** |
-| **`cd ~cr` (jump + `znav` `chpwd`)** | **C `nameddirtab` + `builtin cd` + WAL** | **Yes (bare `cr` w/ `AUTO_CD`)** | **`0`** | **322.35** | **47.2x faster** |
-| **`j cr` (`znav` CLI jump + `chpwd`)** | **`resolve(cr)` + `builtin cd` + WAL** | `cd` jump (+ subpath `j cr sub`) | **`0`** | **394.85** | **38.5x faster** |
-| `~[1]` (`zsh_directory_name_cdr`) | Re-reads & lexes `.chpwd-recent-dirs` | Yes (unstable index!) | `0` | 2677.65 | — |
-| `cdr 1` (jump + `cdr` `chpwd`) | $O(N)$ read + `cd` + $O(N)$ rewrite | `cd` jump | `0` | 15744.74 | — |
-| Minimal External-Fork Jump Floor | `$(/bin/echo $dir) && cd -q` | No | `1` | 1308.16 | — |
-| `zoxide 0.10.0` (`z <query>`) | 3 subshells + `zoxide query` + `zoxide add` | No | `5` + `2 exec` | 15212.76 | 1.0x |
+| **`~cr` (`znav` static named dir)** | **Zsh C `nameddirtab` hash lookup** | **Yes (`vim ~cr/f`)** | **`0`** | **0.25** | **27011.2x faster** |
+| **`~[cr]` (`znav` dynamic hook)** | **`_znav_directory_name n` hook** | **Yes (`vim ~[cr]/f`)** | **`0`** | **31.22** | **216.3x faster** |
+| **`cd ~cr` (jump + `znav` `chpwd`)** | **C `nameddirtab` + `builtin cd` + WAL** | **Yes (bare `cr` w/ `AUTO_CD`)** | **`0`** | **445.33** | **15.2x faster** |
+| **`j cr` (`znav` CLI jump + `chpwd`)** | **`resolve(cr)` + `builtin cd` + WAL** | `cd` jump (+ subpath `j cr sub`) | **`0`** | **542.94** | **12.4x faster** |
+| `~[1]` (`zsh_directory_name_cdr`) | Re-reads & lexes `.chpwd-recent-dirs` | Yes (unstable index!) | `0` | 3766.42 | — |
+| `cdr 1` (jump + `cdr` `chpwd`) | $O(N)$ read + `cd` + $O(N)$ rewrite | `cd` jump | `0` | 20643.56 | — |
+| Minimal External-Fork Jump Floor | `$(/bin/echo $dir) && cd -q` | No | `1` | 1374.82 | — |
+| `zoxide 0.10.0` (`z <query>`) | 3 subshells + `zoxide query` + `zoxide add` | No | `5` + `2 exec` | 6752.81 | 1.0x |
 
 ---
 

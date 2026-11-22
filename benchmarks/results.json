@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "environment": {
-    "hardware": "Apple M5 Max",
+    "hardware": "Apple M2 Pro (Virtual)",
     "arch": "arm64",
-    "os": "macOS 26.5",
+    "os": "macOS 26.7.2",
     "zsh_version": "5.9",
     "zsh_bin": "/bin/zsh",
     "zoxide_available": true,
@@ -12,43 +12,43 @@
   },
   "chpwd_latency_us": {
     "50": {
-      "znav": 390.67,
-      "cdr": 523.74,
-      "fork_floor": 1358.87,
-      "zoxide": 7256.8
+      "znav": 546.78,
+      "cdr": 807.36,
+      "fork_floor": 1240.18,
+      "zoxide": 3065.22
     },
     "500": {
-      "znav": 313.72,
-      "cdr": 12946.2,
-      "fork_floor": 1256.58,
-      "zoxide": 7419.21
+      "znav": 451.59,
+      "cdr": 17144.0,
+      "fork_floor": 1252.64,
+      "zoxide": 3235.01
     },
     "2000": {
-      "znav": 449.72,
-      "cdr": 149591.11,
-      "fork_floor": 1375.5,
-      "zoxide": 7472.95,
-      "speedup_vs_cdr": "332.6x",
-      "speedup_vs_zoxide": "16.6x",
+      "znav": 654.45,
+      "cdr": 213119.49,
+      "fork_floor": 1284.41,
+      "zoxide": 3228.9,
+      "speedup_vs_cdr": "325.6x",
+      "speedup_vs_zoxide": "4.9x",
       "cdr_vs_zoxide": "0.0x"
     }
   },
   "jump_latency_us": {
     "n_dirs": 500,
-    "tilde_static": 0.17,
-    "tilde_dynamic": 24.83,
-    "cd_tilde": 322.35,
-    "jump_j": 394.85,
-    "cdr_dynamic": 2677.65,
-    "cdr_jump": 15744.74,
-    "ext_jump_floor": 1308.16,
-    "zoxide_jump": 15212.76,
+    "tilde_static": 0.25,
+    "tilde_dynamic": 31.22,
+    "cd_tilde": 445.33,
+    "jump_j": 542.94,
+    "cdr_dynamic": 3766.42,
+    "cdr_jump": 20643.56,
+    "ext_jump_floor": 1374.82,
+    "zoxide_jump": 6752.81,
     "external_baseline": "zoxide",
     "speedups_vs_external": {
-      "tilde_static": "89486.8x",
-      "tilde_dynamic": "612.7x",
-      "cd_tilde": "47.2x",
-      "jump_j": "38.5x"
+      "tilde_static": "27011.2x",
+      "tilde_dynamic": "216.3x",
+      "cd_tilde": "15.2x",
+      "jump_j": "12.4x"
     }
   },
   "info_efficiency": {
