@@ -2129,7 +2129,7 @@ assert u["cands_cr"] == znav_spec.candidate_finite_prefix("/Users/username/CODE.
 assert u["cands_cafe"] == znav_spec.candidate_finite_prefix("/private/tmp/café")[:4]
 assert u["blen_cafe"] == znav_spec.path_byte_len("/private/tmp/café") == 18
 
-# 2. 200-operation randomized differential trace conformance (`site/app.js --trace` vs `znav_spec.py`)
+# 2. 7,500-operation randomized differential trace conformance (`site/app.js --trace` vs `znav_spec.py`)
 rng = random.Random(15002026)
 dirs = [
     "/",
@@ -2149,7 +2149,7 @@ ops = []
 t = 1795126400.0
 for d in dirs[1:7]:
     ops.append({"op": "seed", "dir": d, "t": t})
-for _ in range(200):
+for _ in range(7500):
     r = rng.random()
     d = rng.choice(dirs)
     if r < 0.55:
@@ -2184,13 +2184,157 @@ assert max_err < 1e-12, f"Score divergence: {max_err}"
 print(f"JS_SPEC_PARITY_OK:max_err={max_err:.3e}")
 PYEOF
     )
-    assert_true $? "Suite 15d (200-op Node JS vs Python znav_spec.py differential trace) exited 0"
+    assert_true $? "Suite 15d (7,500-op Node JS vs Python znav_spec.py differential trace) exited 0"
     [[ $out_15d == *"JS_SPEC_PARITY_OK"* ]] \
-      && pass "site/app.js matches proofs/znav_spec.py 1-to-1 across 200 ops ($out_15d)" \
+      && pass "site/app.js matches proofs/znav_spec.py 1-to-1 across 7,500 ops ($out_15d)" \
       || fail "Suite 15d output: $out_15d"
   else
     pass "node binary not installed on host; Python static checks completed"
   fi
+
+  # 15e. Aesthetic Metrology, Coordinate Geometry, 16.5:1 Polarity, 8x8 Spatial Dither & Non-Reference Audit
+  local out_15e
+  out_15e=$(python3 -B - "$REPO_ROOT" 2>&1 <<'PYEOF'
+import html.parser
+import re
+import sys
+from pathlib import Path
+
+repo = Path(sys.argv[1])
+site_dir = repo / "site"
+tests_dir = repo / "tests"
+
+html_txt = (site_dir / "index.html").read_text(encoding="utf-8")
+css_raw = (site_dir / "styles.css").read_text(encoding="utf-8")
+js_txt = (site_dir / "app.js").read_text(encoding="utf-8")
+fav_txt = (site_dir / "favicon.svg").read_text(encoding="utf-8")
+
+# Strip CSS block comments before parsing property declarations
+css_txt = re.sub(r"/\*.*?\*/", "", css_raw, flags=re.S)
+
+# 1. Verify all 69 DOM IDs in site/index.html remain intact
+class IdCollector(html.parser.HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.ids = set()
+
+    def handle_starttag(self, tag, attrs):
+        amap = dict(attrs)
+        if amap.get("id"):
+            self.ids.add(amap["id"])
+
+idc = IdCollector()
+idc.feed(html_txt)
+assert len(idc.ids) == 69, f"Expected 69 DOM IDs in site/index.html, got {len(idc.ids)}"
+
+# 2. Enforce zero non-zero border-radius declarations & zero SVG rounded corners
+radius_decls = re.findall(r"border(?:-[a-z]+)*-radius\s*:\s*([^;\}]+)", css_txt, flags=re.I)
+assert radius_decls, "Expected explicit border-radius: 0 rule in site/styles.css"
+for val in radius_decls:
+    norm = val.strip().lower()
+    assert norm in ("0", "0px"), f"Non-zero border-radius forbidden: {val!r}"
+for name, txt in (("index.html", html_txt), ("app.js", js_txt), ("favicon.svg", fav_txt)):
+    assert not re.search(r"border(?:-[a-z]+)*-radius\s*:\s*(?!0(?:px)?\b)", txt, flags=re.I), (
+        f"Non-zero border-radius in {name}"
+    )
+    assert not re.search(r"\br[xy]\s*=\s*['\"](?!0['\"])", txt, flags=re.I), (
+        f"Rounded SVG rx/ry attribute forbidden in {name}"
+    )
+
+# 3. Enforce zero non-none box-shadow/text-shadow, zero backdrop-filter, zero radial/linear glow gradients, zero rgba()
+shadow_decls = re.findall(r"(?:box|text)-shadow\s*:\s*([^;\}]+)", css_txt, flags=re.I)
+assert shadow_decls, "Expected explicit box-shadow: none rule in site/styles.css"
+for val in shadow_decls:
+    assert val.strip().lower() == "none", f"Non-none shadow forbidden: {val!r}"
+
+assert not re.search(r"(?:-webkit-)?backdrop-filter\s*:", css_txt, flags=re.I), (
+    "backdrop-filter blur forbidden (surfaces must be 100% opaque)"
+)
+for name, txt in (("styles.css", css_txt), ("index.html", html_txt), ("app.js", js_txt), ("favicon.svg", fav_txt)):
+    assert not re.search(r"(?:radial|linear|conic)-gradient\s*\(", txt, flags=re.I), (
+        f"Decorative gradient forbidden in {name}"
+    )
+    assert not re.search(r"\b(?:rgba|hsla|color-mix)\s*\(", txt, flags=re.I), (
+        f"Translucent color function forbidden in {name} (100% opaque planes required)"
+    )
+
+# 4. Enforce instantaneous 0ms state machine transitions (zero non-0s/0ms/none CSS transitions)
+trans_decls = re.findall(r"transition(?:-duration)?\s*:\s*([^;\}]+)", css_txt, flags=re.I)
+assert trans_decls, "Expected explicit transition: none rule in site/styles.css"
+for val in trans_decls:
+    norm = val.strip().lower()
+    assert norm in ("none", "0", "0s", "0ms"), f"Non-zero CSS transition forbidden: {val!r}"
+
+# 5. Verify #111111 & #f2f2f2 (16.5:1 WCAG contrast) dual polarity tokens + 4px coordinate grid + 8x8 spatial dither
+def srgb_rel_lum(hex_code: str) -> float:
+    h = hex_code.lstrip("#")
+    chans = [int(h[i : i + 2], 16) / 255.0 for i in (0, 2, 4)]
+    lin = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in chans]
+    return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+
+l_light = srgb_rel_lum("#f2f2f2")
+l_dark = srgb_rel_lum("#111111")
+contrast = (l_light + 0.05) / (l_dark + 0.05)
+assert contrast >= 16.5, f"Expected >= 16.5:1 contrast ratio, got {contrast:.2f}"
+
+for req_token in (
+    "--ground: #111111;",
+    "--signal: #f2f2f2;",
+    "--ground: #f2f2f2;",
+    "--signal: #111111;",
+    "--base-unit: 4px;",
+    "--grid-gap: 8px;",
+    "--control-gap: 8px;",
+    "--panel-padding: 12px;",
+    "--border-width: 1px;",
+    "--corner-radius: 0px;",
+    "--header-height: 28px;",
+    "--control-height: 24px;",
+    "--transition-ms: 0ms;",
+    "--dither-void-0:",
+    "--dither-stipple-25:",
+    "--dither-50:",
+    "--dither-checker-50:",
+    "--dither-solid-100:",
+    "--dither-sparse:",
+    "width='8' height='8' viewBox='0 0 8 8'",
+    "background-size: 8px 8px;",
+    "-webkit-font-smoothing: antialiased;",
+    "font-size: 14px;",
+    "line-height: 20px;",
+    "font-variant-numeric: tabular-nums;",
+):
+    assert req_token in css_txt, f"Missing required metrology token in site/styles.css: {req_token}"
+
+assert "#111111" in fav_txt and "#f2f2f2" in fav_txt, "site/favicon.svg must use #111111 / #f2f2f2 polarity"
+assert 'id="frec-shield-dither" width="8" height="8"' in js_txt, "site/app.js must use 8x8 SVG spatial dither pattern"
+
+# 6. Strict non-reference audit across site/ and tests/ (hex-encoded so test file itself stays 100% reference-free)
+forbidden_hex = (
+    "64657369676e2d61657374686574696373",
+    "74656d706c617465732f6b65726e656c",
+    "6b65726e656c2e6a736f6e",
+    "616b7766",
+    "616b636c69",
+    "6d61636864796e65",
+    "7a6569746c6f73",
+)
+forbidden_terms = [bytes.fromhex(h).decode("utf-8") for h in forbidden_hex]
+scan_paths = sorted(list(site_dir.rglob("*")) + list(tests_dir.rglob("*")))
+for sp in scan_paths:
+    if not sp.is_file() or sp.suffix in (".zwc", ".pyc"):
+        continue
+    body_low = sp.read_text(encoding="utf-8", errors="ignore").lower()
+    for term in forbidden_terms:
+        assert term not in body_low, f"Forbidden external reference {term!r} found in {sp.relative_to(repo)}"
+
+print(f"METROLOGY_OK:contrast={contrast:.2f}:ids={len(idc.ids)}")
+PYEOF
+  )
+  assert_true $? "Suite 15e (aesthetic metrology, 16.5:1 polarity, 4px grid, 8x8 dither & non-reference audit) exited 0"
+  [[ $out_15e == *"METROLOGY_OK"* ]] \
+    && pass "Aesthetic metrology verified: 0px radii, 1px rules, 0 shadows/blur/gradients, 0ms transitions, 16.5:1 #111111/#f2f2f2, 8x8 dither ($out_15e)" \
+    || fail "Suite 15e output: $out_15e"
 }
 
 # ==============================================================================

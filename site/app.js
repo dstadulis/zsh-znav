@@ -680,7 +680,7 @@
   }
 
   /* --------------------------------------------------------------------------
-   * Theme Toggle ("Terminal" Dark <-> "Monograph" Light)
+   * Chromatic Polarity Toggle (#111111 Dark <-> #f2f2f2 Light, 16.5:1)
    * -------------------------------------------------------------------------- */
   var chartRedrawCallbacks = [];
 
@@ -692,7 +692,7 @@
     function syncBtn() {
       var isLight = htmlEl.getAttribute("data-theme") === "light";
       btn.setAttribute("aria-pressed", isLight ? "true" : "false");
-      btn.textContent = isLight ? "Terminal (Dark)" : "Monograph (Light)";
+      btn.textContent = isLight ? "Polarity: Dark (#111111)" : "Polarity: Light (#f2f2f2)";
     }
 
     btn.addEventListener("click", function () {
@@ -985,7 +985,7 @@
           var wasShifted = state.lastShiftedCdr.has(d);
           var cdrCell = cdrPos
             ? '<span class="' + (wasShifted ? "cdr-shifted" : "") + '">~[' + cdrPos + "]" + (wasShifted ? " &uarr;shifted" : "") + "</span>"
-            : '<span style="color:var(--text-dim)">untracked</span>';
+            : '<span class="cell-dim">untracked</span>';
           var isCur = d === state.pwd;
           rowsHtml +=
             '<tr class="' + (isCur ? "is-pwd" : "") + '">' +
@@ -1713,25 +1713,25 @@
 
       stageCanon.innerHTML =
         '<div class="stage-box__title">1. Canonical Path &amp; Order Tuple</div>' +
-        '<div class="mono" style="font-size:0.84rem; word-break:break-all; font-weight:600;">' + escapeHtml(canon) + "</div>" +
-        '<div style="font-size:0.78rem; color:var(--text-muted); margin-top:0.35rem;">' +
+        '<div class="mono" style="word-break:break-all; font-weight:700;">' + escapeHtml(canon) + "</div>" +
+        '<div class="helper-note">' +
         "depth(d) = <code>" + depth + "</code> &middot; UTF-8 bytes = <code>" + blen + "</code>" +
         (blen !== charLen ? ' <span class="pill pill--amber">multibyte (' + charLen + " chars)</span>" : "") +
         "</div>";
 
       stageTokens.innerHTML =
         '<div class="stage-box__title">2. ASCII Segment Tokenizer</div>' +
-        '<div style="font-size:0.78rem; color:var(--text-muted);">Basename <code>T(d)</code>:</div>' +
+        '<div class="sub-label">Basename <code>T(d)</code>:</div>' +
         '<div class="token-chips">' +
         tp.tList.map(function (t) { return '<span class="token-chip">"' + escapeHtml(t) + '"</span>'; }).join("") +
         "</div>" +
-        '<div style="font-size:0.78rem; color:var(--text-muted); margin-top:0.4rem;">Parent <code>P(d)</code>: <code>[' +
+        '<div class="helper-note">Parent <code>P(d)</code>: <code>[' +
         escapeHtml(tp.pList.join(", ")) + "]</code></div>";
 
       stageWinner.innerHTML =
         '<div class="stage-box__title">3. Priority-Optimal Bijection &phi;(d)</div>' +
-        '<div class="winner-code">~' + escapeHtml(winner) + ' <span style="font-size:0.95rem; font-weight:500;">/ ~[' + escapeHtml(winner) + "]</span></div>" +
-        '<div style="font-size:0.78rem; color:var(--text-muted); margin-top:0.3rem;">' +
+        '<div class="winner-code">~' + escapeHtml(winner) + ' <span class="winner-code__dyn">/ ~[' + escapeHtml(winner) + "]</span></div>" +
+        '<div class="helper-note">' +
         "Selected in <strong>" + probes + "</strong> lattice probe" + (probes === 1 ? "" : "s") +
         (skippedList.length > 0 ? " (skipped: " + escapeHtml(skippedList.join(", ")) + ")" : " (0 collisions)") +
         "</div>";
@@ -1751,7 +1751,7 @@
         var subItems = detailed.filter(function (x) { return x.tier === tm.id; });
         var itemsHtml = "";
         if (subItems.length === 0) {
-          itemsHtml = '<div style="font-size:0.74rem; color:var(--text-dim);">(none for this path shape)</div>';
+          itemsHtml = '<div class="helper-note">(none for this path shape)</div>';
         } else {
           for (var si = 0; si < Math.min(subItems.length, 9); si++) {
             var item = subItems[si];
@@ -1772,7 +1772,7 @@
               "</div>";
           }
           if (subItems.length > 9) {
-            itemsHtml += '<div style="font-size:0.71rem; color:var(--text-dim); padding-top:2px;">+ ' + (subItems.length - 9) + " more compositions...</div>";
+            itemsHtml += '<div class="helper-note">+ ' + (subItems.length - 9) + " more compositions...</div>";
           }
         }
         gridHtml +=
@@ -1869,18 +1869,19 @@
       var shieldDays = Math.max(0, (lamCrAll - T0) / DAY_SEC);
 
       var W = 880, H = 320;
-      var padL = 62, padR = 26, padT = 24, padB = 40;
+      var padL = 64, padR = 24, padT = 24, padB = 40;
       var plotW = W - padL - padR;
       var plotH = H - padT - padB;
 
       var isLight = document.documentElement.getAttribute("data-theme") === "light";
-      var colGrid = isLight ? "rgba(36,28,21,0.12)" : "rgba(147,164,184,0.14)";
-      var colText = isLight ? "#5b4d3f" : "#93a4b8";
-      var colCr = isLight ? "#1e7a3b" : "#3fb950";
-      var colSr = isLight ? "#1d5fa7" : "#58a6ff";
-      var colCar = isLight ? "#b42318" : "#f47067";
-      var colShield = isLight ? "rgba(30,122,59,0.10)" : "rgba(63,185,80,0.10)";
-      var colCursor = isLight ? "#c84318" : "#e3b341";
+      var colGround = isLight ? "#f2f2f2" : "#111111";
+      var colSignal = isLight ? "#111111" : "#f2f2f2";
+      var colGrid = isLight ? "#cccccc" : "#2e2e2e";
+      var colText = colSignal;
+      var colCr = isLight ? "#0d6826" : "#5ce072";
+      var colSr = isLight ? "#0b4f9c" : "#6eb5ff";
+      var colCar = isLight ? "#a81810" : "#ff6b63";
+      var colCursor = colSignal;
 
       function xOf(day) {
         return padL + (Math.max(0, Math.min(MAX_DAYS, day)) / MAX_DAYS) * plotW;
@@ -1908,22 +1909,33 @@
         return pts.join(" ");
       }
 
-      var svg = [];
+      var svg = [
+        '<defs>' +
+          '<pattern id="frec-shield-dither" width="8" height="8" patternUnits="userSpaceOnUse" shape-rendering="crispEdges">' +
+            '<rect width="8" height="8" fill="' + colGround + '"/>' +
+            '<path fill="' + colCr + '" d="M0 0h1v1H0zM4 0h1v1H4zM2 2h1v1H2zM6 2h1v1H6zM0 4h1v1H0zM4 4h1v1H4zM2 6h1v1H2zM6 6h1v1H6z"/>' +
+          '</pattern>' +
+        '</defs>',
+        '<rect x="0" y="0" width="' + W + '" height="' + H + '" fill="' + colGround + '"/>'
+      ];
 
-      // Shaded Theorem 2b Protection Zone [0, shieldDays]
+      // Opaque 8x8 Spatial-Dithered Theorem 2b Protection Zone [0, shieldDays]
       var shieldX = xOf(Math.min(MAX_DAYS, shieldDays));
       if (shieldDays > 0.05) {
         svg.push(
           '<rect x="' + padL + '" y="' + padT + '" width="' + (shieldX - padL).toFixed(1) +
-          '" height="' + plotH + '" fill="' + colShield + '"/>'
+          '" height="' + plotH + '" fill="url(#frec-shield-dither)"/>'
         );
         svg.push(
           '<line x1="' + shieldX.toFixed(1) + '" y1="' + padT + '" x2="' + shieldX.toFixed(1) +
-          '" y2="' + (padT + plotH) + '" stroke="' + colCr + '" stroke-dasharray="5,4" stroke-width="1.4"/>'
+          '" y2="' + (padT + plotH) + '" stroke="' + colCr + '" stroke-dasharray="4,4" stroke-width="1"/>'
         );
         svg.push(
-          '<text x="' + Math.min(W - 190, padL + 8) + '" y="' + (padT + 15) +
-          '" fill="' + colCr + '" font-family="IBM Plex Mono, monospace" font-size="11" font-weight="600">' +
+          '<rect x="' + (padL + 8) + '" y="' + (padT + 4) + '" width="268" height="16" fill="' + colGround + '" stroke="' + colCr + '" stroke-width="1"/>'
+        );
+        svg.push(
+          '<text x="' + (padL + 12) + '" y="' + (padT + 16) +
+          '" fill="' + colCr + '" font-family="IBM Plex Mono, monospace" font-size="11" font-weight="700">' +
           "Thm 2b Shield: \u03c4 ln(S) = " + shieldDays.toFixed(2) + "d (S_cr > 1.0)" +
           "</text>"
         );
@@ -1938,7 +1950,7 @@
         var isOneBaseline = (!fState.logScale && yv === 1) || (fState.logScale && yv === 0);
         svg.push(
           '<line x1="' + padL + '" y1="' + py.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + py.toFixed(1) +
-          '" stroke="' + (isOneBaseline ? colCar : colGrid) + '" stroke-dasharray="' + (isOneBaseline ? "3,3" : "none") + '" stroke-width="1"/>'
+          '" stroke="' + (isOneBaseline ? colCar : colGrid) + '" stroke-dasharray="' + (isOneBaseline ? "4,4" : "none") + '" stroke-width="1"/>'
         );
         svg.push(
           '<text x="' + (padL - 8) + '" y="' + (py + 4).toFixed(1) + '" text-anchor="end" fill="' + colText +
@@ -1959,19 +1971,25 @@
         );
       }
 
+      // Crisp 1px Plot Frame
+      svg.push(
+        '<rect x="' + padL + '" y="' + padT + '" width="' + plotW + '" height="' + plotH +
+        '" fill="none" stroke="' + colSignal + '" stroke-width="1"/>'
+      );
+
       // Curves
-      svg.push('<path d="' + buildCurvePath(fState.crVisits, 0) + '" fill="none" stroke="' + colCr + '" stroke-width="2.8"/>');
-      svg.push('<path d="' + buildCurvePath(fState.srVisits, 0) + '" fill="none" stroke="' + colSr + '" stroke-width="2.3"/>');
+      svg.push('<path d="' + buildCurvePath(fState.crVisits, 0) + '" fill="none" stroke="' + colCr + '" stroke-width="2"/>');
+      svg.push('<path d="' + buildCurvePath(fState.srVisits, 0) + '" fill="none" stroke="' + colSr + '" stroke-width="2"/>');
       if (fState.carVisits.length > 0) {
         var minCarDay = Math.min.apply(null, fState.carVisits);
-        svg.push('<path d="' + buildCurvePath(fState.carVisits, minCarDay) + '" fill="none" stroke="' + colCar + '" stroke-width="2.4" stroke-dasharray="6,3"/>');
+        svg.push('<path d="' + buildCurvePath(fState.carVisits, minCarDay) + '" fill="none" stroke="' + colCar + '" stroke-width="2" stroke-dasharray="6,3"/>');
       }
 
-      // Inspection Cursor Line & Live Dots
+      // Inspection Cursor Line & Sharp 0px-Radius Square Reticles
       var cx = xOf(fState.cursorDays);
       svg.push(
         '<line x1="' + cx.toFixed(1) + '" y1="' + padT + '" x2="' + cx.toFixed(1) + '" y2="' + (padT + plotH) +
-        '" stroke="' + colCursor + '" stroke-width="1.8"/>'
+        '" stroke="' + colCursor + '" stroke-width="1"/>'
       );
 
       var wCrCur = weightAtDay(fState.crVisits, fState.cursorDays, tau);
@@ -1986,9 +2004,12 @@
         if (pt.w <= 0) return;
         var yVal = fState.logScale ? Math.log(pt.w) : pt.w;
         var cy = yOf(yVal);
-        svg.push('<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="4.8" fill="' + pt.col + '"/>');
         svg.push(
-          '<text x="' + Math.min(W - 115, cx + 8).toFixed(1) + '" y="' + (cy - 6 + idx * 2).toFixed(1) +
+          '<rect x="' + (cx - 4).toFixed(1) + '" y="' + (cy - 4).toFixed(1) +
+          '" width="8" height="8" fill="' + pt.col + '" stroke="' + colGround + '" stroke-width="1"/>'
+        );
+        svg.push(
+          '<text x="' + Math.min(W - 116, cx + 8).toFixed(1) + '" y="' + (cy - 6 + idx * 2).toFixed(1) +
           '" fill="' + pt.col + '" font-family="IBM Plex Mono, monospace" font-size="11" font-weight="700">' +
           pt.label + "</text>"
         );
@@ -2006,8 +2027,8 @@
 
       winReadout.innerHTML =
         '<div class="stage-box__title">Theorem 2b: No-Hijack Shield</div>' +
-        '<div style="font-size:0.84rem;">Protection Window: <strong>' + shieldDays.toFixed(2) + " days</strong> (<code>\u03c4 ln S_0</code>)</div>" +
-        '<div style="font-size:0.78rem; color:var(--text-muted); margin-top:0.3rem;">' +
+        "<div>Protection Window: <strong>" + shieldDays.toFixed(2) + " days</strong> (<code>\u03c4 ln S_0</code>)</div>" +
+        '<div class="helper-note">' +
         (crProtected
           ? '<span class="pill pill--good">~cr LOCKED</span> <code>CODE.REPOSITORIES</code> keeps <code>~cr</code>; <code>CACHE.REPOS</code> gets <code>~' + (phiCur[HOME_DIR + "/CACHE.REPOS"] || "car") + "</code>."
           : '<span class="pill pill--bad">OVERTAKEN</span> Competitor accumulated higher Log-Epoch \u039b after shield expiry.') +
@@ -2017,8 +2038,8 @@
       var pCrPct = ((probsNow[HOME_DIR + "/CODE.REPOSITORIES"] || 0) * 100).toFixed(2);
       invReadout.innerHTML =
         '<div class="stage-box__title">Theorem 1b: O(0) Aging Invariance</div>' +
-        '<div style="font-size:0.84rem;">Scale-Free Softmax <code>P(~cr) = ' + pCrPct + "%</code></div>" +
-        '<div style="font-size:0.78rem; color:var(--text-muted); margin-top:0.3rem;">' +
+        "<div>Scale-Free Softmax <code>P(~cr) = " + pCrPct + "%</code></div>" +
+        '<div class="helper-note">' +
         "Move the cursor across Days 0&ndash;14: curves decay in exact proportion and <strong>never cross</strong> without new visits (<code>0</code> DB rescaling passes)." +
         "</div>";
 
@@ -2026,8 +2047,8 @@
       var safeArg = (-Math.abs(lamCrAll - (T0 + fState.cursorDays * DAY_SEC)) / tau).toFixed(3);
       ieeeReadout.innerHTML =
         '<div class="stage-box__title">Theorem 1c: IEEE-754 Float64 Safety</div>' +
-        '<div style="font-size:0.82rem;">Naive <code>exp(' + naiveArg + ") = +Infinity</code></div>" +
-        '<div style="font-size:0.78rem; color:var(--text-muted); margin-top:0.3rem;">' +
+        "<div>Naive <code>exp(" + naiveArg + ") = +Infinity</code></div>" +
+        '<div class="helper-note">' +
         "Log-Epoch evaluates <code>exp(" + safeArg + ") &isin; (0, 1]</code> &mdash; zero overflow over &plusmn;10<sup>20</sup> s, error &le; <code>2.22e-7 s</code> (0.93 ulp)." +
         "</div>";
     }
@@ -2044,7 +2065,7 @@
     svgEl.addEventListener("click", function (ev) {
       var rect = svgEl.getBoundingClientRect();
       var relX = ((ev.clientX - rect.left) / rect.width) * 880;
-      var day = ((relX - 62) / (880 - 62 - 26)) * MAX_DAYS;
+      var day = ((relX - 64) / (880 - 64 - 24)) * MAX_DAYS;
       fState.cursorDays = Math.max(0, Math.min(MAX_DAYS, Math.round(day * 20) / 20));
       curSlider.value = String(fState.cursorDays);
       renderFrecency();
@@ -2209,7 +2230,7 @@
             "</div>";
         });
         jHtml +=
-          '<p style="font-size:0.76rem; color:var(--text-muted); margin:0.65rem 0 0;">' +
+          '<p class="helper-note">' +
           "Static <code>~cr</code> hits Zsh's in-process C <code>nameddirtab</code> in <strong>" + jump.tilde_static.toFixed(2) + " &mu;s</strong> (" +
           jump.speedups_vs_external.tilde_static + " faster than spawning an external <code>zoxide</code> query+add pipeline) and works inside arbitrary path arguments (<code>vim ~cr/f</code>)." +
           "</p></div>";
@@ -2325,7 +2346,7 @@
         '<div class="mini-kpi"><span class="mini-kpi__label">Keystrokes Saved / Yr</span><span class="mini-kpi__val znav-locked">' + annualSaved.toLocaleString() + "</span></div>" +
         "</div>" +
         barsHtml +
-        '<div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:0.5rem; margin-top:0.65rem; font-size:0.78rem; color:var(--text-muted);">' +
+        '<div class="zipf-summary-row">' +
         '<span>Muscle-Memory Recall Churn: <strong class="znav-locked">znav ' + znavChurn.toFixed(2) + '%</strong> vs <strong class="cdr-shifted">cdr ' + cdrChurn.toFixed(2) + "%</strong></span>" +
         (exactRow ? '<span class="pill pill--good">Exact empirical trace (5,000 steps)</span>' : '<span class="pill pill--blue">Analytical Zipf(N=' + N + ", s=" + s.toFixed(2) + ") model</span>") +
         "</div>";
@@ -2415,7 +2436,7 @@
       var item = PROOF_PILLARS[key] || PROOF_PILLARS.smt;
       proofPane.innerHTML =
         "<h3>" + escapeHtml(item.title) + "</h3>" +
-        '<p style="font-size:0.88rem; color:var(--text-muted); margin:0 0 0.75rem;">' + escapeHtml(item.summary) + "</p>" +
+        '<p class="proof-detail__summary">' + escapeHtml(item.summary) + "</p>" +
         "<pre><code>" + escapeHtml(item.code) + "</code></pre>";
     }
 

@@ -1,13 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="zsh-znav ~cr icon">
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#131922"/>
-      <stop offset="100%" stop-color="#0b0f15"/>
-    </linearGradient>
-  </defs>
-  <rect x="2" y="2" width="60" height="60" rx="12" fill="url(#bg)" stroke="#2d3b4e" stroke-width="2.5"/>
-  <path d="M12 22c2.5-3.5 6.2-3.5 8.7 0s6.2 3.5 8.7 0" fill="none" stroke="#e3b341" stroke-width="3.6" stroke-linecap="round"/>
-  <text x="32" y="27" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" font-weight="700" fill="#e6edf3">cr</text>
-  <path d="M13 40l8 5.5-8 5.5" fill="none" stroke="#39c5cf" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
-  <line x1="26" y1="51" x2="50" y2="51" stroke="#3fb950" stroke-width="3.4" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" shape-rendering="crispEdges" role="img" aria-label="zsh-znav ~cr icon">
+  <rect x="0" y="0" width="64" height="64" fill="#111111"/>
+  <rect x="3.5" y="3.5" width="57" height="57" fill="none" stroke="#f2f2f2" stroke-width="1"/>
+  <rect x="4" y="4" width="56" height="12" fill="#f2f2f2"/>
+  <rect x="8" y="8" width="4" height="4" fill="#111111"/>
+  <rect x="16" y="8" width="4" height="4" fill="#111111"/>
+  <path d="M10 30h4v-4h6v8h6v-4h4" fill="none" stroke="#f2f2f2" stroke-width="3" stroke-linecap="square" stroke-linejoin="miter"/>
+  <text x="33" y="35" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" font-weight="700" fill="#f2f2f2">cr</text>
+  <path d="M12 44l8 6-8 6" fill="none" stroke="#f2f2f2" stroke-width="3" stroke-linecap="square" stroke-linejoin="miter"/>
+  <rect x="26" y="52" width="24" height="4" fill="#f2f2f2"/>
 </svg>
