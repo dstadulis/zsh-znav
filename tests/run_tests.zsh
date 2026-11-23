@@ -18,6 +18,7 @@
 #  13. Benchmark Pipeline, README Auto-Injector & CI/CD Workflow Loop-Safety Audit
 #  14. Powerlevel10k Full-Path + Shortcode Prompt Integration (`ZNAV_PWD_CODE`, `ZNAV_P10K_PROMPT`, Reload & `always`-Block Safety)
 #  15. Interactive GitHub Pages Site (`site/`), Offline `file://` Safety, `bench_data.js` Sync, `pages.yml` & JS Engine Parity
+#  16. Unicode Directories (`日本`), Zero-Collision Bijection & Unicode Security
 # ==============================================================================
 
 emulate -L zsh
@@ -1297,7 +1298,9 @@ for req_ci in (
     "tests/run_tests.zsh",
     "tests/diff_conformance.py",
     "proofs/verify_all.py",
+    "tests/audit_proofs.py",
     "tests/verify_zero_fork.py",
+    "/tmp/ci_unicode_日本_東京/zsh-znav",
     "git status --porcelain",
 ):
     assert req_ci in ci_raw, f"Missing '{req_ci}' in ci.yml"
@@ -2335,6 +2338,1052 @@ PYEOF
   [[ $out_15e == *"METROLOGY_OK"* ]] \
     && pass "Aesthetic metrology verified: 0px radii, 1px rules, 0 shadows/blur/gradients, 0ms transitions, 16.5:1 #111111/#f2f2f2, 8x8 dither ($out_15e)" \
     || fail "Suite 15e output: $out_15e"
+}
+
+# ==============================================================================
+# SUITE 16: Unicode Directories (`日本`), Zero-Collision Bijection & Security
+# ==============================================================================
+print -r -- "\n--- Suite 16: Unicode Directories (日本), Zero-Collision Bijection & Unicode Security ---"
+() {
+  local sb="$SANDBOX_ROOT/s16_unicode"
+  zf_mkdir -p "$sb"
+
+  # Select valid UTF-8 locale on Darwin / Linux runners
+  local utf8_loc="en_US.UTF-8"
+  if [[ $OSTYPE != darwin* ]]; then
+    local -a _avail_locs=()
+    if (( $+commands[locale] )); then
+      _avail_locs=(${(f)"$(locale -a 2>/dev/null)"})
+    fi
+    utf8_loc=""
+    local _cand_loc
+    for _cand_loc in en_US.UTF-8 en_US.utf8 C.UTF-8 C.utf8 POSIX.UTF-8; do
+      if (( ${_avail_locs[(Ie)$_cand_loc]} )); then
+        utf8_loc=$_cand_loc
+        break
+      fi
+    done
+    [[ -z $utf8_loc ]] && utf8_loc="C.UTF-8"
+  fi
+
+  # ----------------------------------------------------------------------------
+  # 16a. Comprehensive Unicode Directory Navigation & Plugin-in-Unicode-Path
+  # ----------------------------------------------------------------------------
+  zf_mkdir -p \
+    "$sb/nav_home/日本/sub" \
+    "$sb/nav_home/日本語" \
+    "$sb/nav_home/東京/日本/sub" \
+    "$sb/nav_home/한국" \
+    "$sb/nav_home/Москва" \
+    "$sb/nav_home/العربية" \
+    "$sb/nav_home/🚀_launch/sub" \
+    "$sb/nav_home/日本_repo" \
+    "$sb/nav_data" \
+    "$sb/p10k_data" \
+    "$sb/cdr_data" \
+    "$sb/zo_data" \
+    "$sb/zo_bin"
+  local exp_nav_home=${${:-$sb/nav_home}:A}
+
+  local out_16a
+  out_16a=$(HOME="$exp_nav_home" ZNAV_DATA_DIR="$sb/nav_data" LC_ALL="$utf8_loc" LANG="$utf8_loc" TERM=dumb \
+    /bin/zsh -dfi +Z +m -c '
+      PROMPT="" RPROMPT="" PS1="" PS2=""
+      setopt NO_PROMPT_SP extended_glob warn_create_global
+      source "$1" || exit 11
+
+      # 1. Cold-start auto-seed: all 8 depth-1 Unicode directories immediately tracked & projected
+      local -a depth1=(
+        "$HOME/日本"
+        "$HOME/日本語"
+        "$HOME/東京"
+        "$HOME/한국"
+        "$HOME/Москва"
+        "$HOME/العربية"
+        "$HOME/🚀_launch"
+        "$HOME/日本_repo"
+      )
+      local d c
+      for d in "${depth1[@]}"; do
+        (( ${+_ZNAV_SCORE[$d]} )) || { print -r -- "MISSING_AUTOSEED:$d"; exit 12; }
+        c=${_ZNAV_DIR2CODE[$d]:-}
+        [[ -n $c && ${nameddirs[$c]:-} == $d ]] || { print -r -- "BAD_AUTOSEED_PROJ:$d->$c"; exit 13; }
+      done
+      print -r -- "AUTOSEED_UNICODE:OK"
+
+      # 2. Explicit `znav seed` on $HOME/東京 -> seeds nested $HOME/東京/日本
+      znav seed "$HOME/東京" || exit 14
+      (( ${+_ZNAV_SCORE[$HOME/東京/日本]} )) || { print -r -- "SEED_NESTED_FAIL"; exit 15; }
+
+      # 3. Exercise `cd` across all Unicode scripts, giving ~/日本 top rank
+      for d in "${depth1[@]}" "$HOME/東京/日本"; do
+        builtin cd -q /
+        cd -- "$d" || exit 16
+      done
+      repeat 4 {
+        cd "$HOME/東京" || exit 17
+        cd "$HOME/日本" || exit 18
+      }
+
+      # 4. Verify static ~code & dynamic ~[code] across all 9 Unicode directories
+      for d in "${depth1[@]}" "$HOME/東京/日本"; do
+        c=${_ZNAV_DIR2CODE[$d]:-}
+        [[ -n $c ]] || { print -r -- "NO_CODE:$d"; exit 19; }
+        [[ ${~:-~$c} == $d ]] || { print -r -- "STATIC_FAIL:$c:${~:-~$c}!=$d"; exit 20; }
+        [[ ~[$c] == $d ]] || { print -r -- "DYN_CODE_FAIL:$c:~[$c]!=$d"; exit 21; }
+      done
+      local c_jp=${_ZNAV_DIR2CODE[$HOME/日本]}
+      local c_tk_jp=${_ZNAV_DIR2CODE[$HOME/東京/日本]}
+      local c_rocket=${_ZNAV_DIR2CODE[$HOME/🚀_launch]}
+
+      # 5. Dynamic Unicode queries ~[日本], ~[東京:日本] & subpaths
+      local dyn_jp=~[日本]
+      [[ $dyn_jp == "$HOME/日本" ]] || { print -r -- "DYN_JP_FAIL:$dyn_jp"; exit 22; }
+      local dyn_tk_jp=~[東京:日本]
+      [[ $dyn_tk_jp == "$HOME/東京/日本" ]] || { print -r -- "DYN_TK_JP_FAIL:$dyn_tk_jp"; exit 23; }
+      [[ ~[日本]/sub == "$HOME/日本/sub" ]] || { print -r -- "DYN_JP_SUB_FAIL"; exit 24; }
+      [[ ~[東京:日本]/sub == "$HOME/東京/日本/sub" ]] || { print -r -- "DYN_TK_JP_SUB_FAIL"; exit 25; }
+
+      # 6. `_znav_directory_name d` exact UTF-8 / metafied `%~` contraction before visiting /sub
+      local sub_p par_p exp_blen
+      for sub_p in "$HOME/日本/sub" "$HOME/東京/日本/sub" "$HOME/🚀_launch/sub"; do
+        par_p=${sub_p:h}
+        c=${_ZNAV_DIR2CODE[$par_p]}
+        local -a reply=()
+        ZNAV_PROMPT_DYNAMIC=1 _znav_directory_name d "$sub_p" || { print -r -- "MODE_D_RC_FAIL:$sub_p"; exit 26; }
+        () {
+          setopt localoptions no_multibyte
+          exp_blen=${#par_p}
+        }
+        [[ ${reply[1]} == $c ]] && (( reply[2] >= exp_blen )) \
+          || { print -r -- "MODE_D_BLEN_MISMATCH:$sub_p:${reply[1]}:${reply[2]}<$exp_blen"; exit 27; }
+        builtin cd -q -- "$sub_p" || exit 28
+        [[ ${(%):-%~} == "~${c}/sub" ]] || { print -r -- "STATIC_PROMPT_MISMATCH:${(%):-%~}!=~${c}/sub"; exit 29; }
+      done
+      # Also verify live dynamic `%~` (`~[code]/sub`) slicing across Zsh metafied bytes (0x83..0xA2)!
+      ZNAV_MAX_NAMEDDIRS=0
+      _znav_rebuild_projections
+      for sub_p in "$HOME/日本/sub" "$HOME/東京/日本/sub" "$HOME/🚀_launch/sub"; do
+        par_p=${sub_p:h}
+        c=${_ZNAV_DIR2CODE[$par_p]}
+        builtin cd -q -- "$sub_p" || exit 30
+        local dyn_p=""
+        ZNAV_PROMPT_DYNAMIC=always dyn_p=${(%):-%~}
+        [[ $dyn_p == "~[${c}]/sub" ]] || { print -r -- "DYN_PROMPT_SLICE_FAIL:$dyn_p!=~[${c}]/sub"; exit 31; }
+      done
+      ZNAV_MAX_NAMEDDIRS=256
+      _znav_rebuild_projections
+
+      # 7. `j 日本`, `j 東京 日本`, subpath `j <code> sub`, and `znav query`
+      builtin cd -q /
+      j 日本 && [[ $PWD == "$HOME/日本" ]] || { print -r -- "J_JP_FAIL:$PWD"; exit 32; }
+      j 東京 日本 && [[ $PWD == "$HOME/東京/日本" ]] || { print -r -- "J_TK_JP_FAIL:$PWD"; exit 33; }
+      c_jp=${_ZNAV_DIR2CODE[$HOME/日本]}
+      j "$c_jp" sub && [[ $PWD == "$HOME/日本/sub" ]] || { print -r -- "J_SUB_FAIL:$PWD"; exit 34; }
+      cd "$HOME/日本" || exit 35
+
+      local q_jp q_tk_jp q_colon
+      q_jp=$(znav query 日本) || exit 36
+      q_tk_jp=$(znav query 東京 日本) || exit 37
+      q_colon=$(znav query 東京:日本) || exit 38
+      [[ $q_jp == "$HOME/日本" && $q_tk_jp == "$HOME/東京/日本" && $q_colon == "$HOME/東京/日本" ]] \
+        || { print -r -- "QUERY_MISMATCH:$q_jp|$q_tk_jp|$q_colon"; exit 39; }
+
+      # 8. `znav list`, `znav list --tsv`, `znav explain ~/日本` & `znav explain <code>`, `znav stats`
+      local lst_human lst_tsv exp_by_dir exp_by_code stats_out
+      lst_human=$(znav list) || exit 40
+      lst_tsv=$(znav list --tsv) || exit 41
+      for tok in "~/日本" "~/日本語" "~/東京" "~/한국" "~/Москва" "~/العربية" "~/🚀_launch" "~/日本_repo"; do
+        [[ $lst_human == *"$tok"* ]] || { print -r -- "LIST_MISSING:$tok"; exit 42; }
+      done
+      [[ $lst_tsv == *$'\''\t'\''"$HOME/日本"* && $lst_tsv == *$'\''\t'\''"$HOME/東京/日本"* && $lst_tsv == *$'\''\t'\''"$HOME/🚀_launch"* ]] \
+        || { print -r -- "TSV_MISSING_UNICODE"; exit 43; }
+
+      c_jp=${_ZNAV_DIR2CODE[$HOME/日本]}
+      exp_by_dir=$(znav explain "$HOME/日本") || exit 44
+      exp_by_code=$(znav explain "$c_jp") || exit 45
+      [[ $exp_by_dir == *"Directory   : $HOME/日本"* && $exp_by_dir == *"~$c_jp"* && $exp_by_dir == *"SELECTED"* ]] \
+        || { print -r -- "EXPLAIN_DIR_BAD:$exp_by_dir"; exit 46; }
+      [[ $exp_by_code == *"Directory   : $HOME/日本"* && $exp_by_code == *"~$c_jp"* ]] \
+        || { print -r -- "EXPLAIN_CODE_BAD:$exp_by_code"; exit 47; }
+
+      stats_out=$(znav stats) || exit 48
+      [[ $stats_out == *"Tracked directories (N)"* && $stats_out == *"Empirical Shannon Entropy"* ]] \
+        || { print -r -- "STATS_BAD:$stats_out"; exit 49; }
+
+      _znav_ensure_full_bijection
+      print -r -- "CODES_16A:${_ZNAV_DIR2CODE[$HOME/日本]}|${_ZNAV_DIR2CODE[$HOME/🚀_launch]}"
+      print -r -- "S16A_CORE_OK"
+    ' _ "$PLUGIN_FILE" 2>&1)
+  assert_true $? "Suite 16a core Unicode navigation across 8 scripts exited 0"
+  [[ $out_16a == *"S16A_CORE_OK"* ]] \
+    && pass "Unicode auto-seed, seed, cd, ~code, ~[code], ~[日本], ~[東京:日本], j, query, list/--tsv, explain, stats & %~ UTF-8 byte slicing passed" \
+    || fail "Suite 16a core output: $out_16a"
+
+  # Extract assigned shortcodes for ~/日本 and ~/🚀_launch to exercise bare AUTO_CD + CDABLE_VARS in SHINSTDIN (-s)
+  local codes_line=${${(M)${(f)out_16a}:#CODES_16A:*}#CODES_16A:}
+  local bare_c_jp=${codes_line%%|*}
+  local bare_c_rocket=${codes_line#*|}
+  if [[ $bare_c_jp == [a-z_][a-z0-9_]## && $bare_c_rocket == [a-z_][a-z0-9_]## ]]; then
+    local out_16a_bare
+    out_16a_bare=$(HOME="$exp_nav_home" ZNAV_DATA_DIR="$sb/nav_data" LC_ALL="$utf8_loc" LANG="$utf8_loc" TERM=dumb \
+      /bin/zsh -dfis +Z +m <<EOF 2>/dev/null
+PROMPT="" RPROMPT="" PS1="" PS2=""
+setopt NO_PROMPT_SP AUTO_CD CDABLE_VARS
+source ${(q)PLUGIN_FILE}
+$bare_c_jp
+print -r -- "BARE_JP:\$PWD"
+$bare_c_rocket
+print -r -- "BARE_ROCKET:\$PWD"
+exit 0
+EOF
+    )
+    [[ $out_16a_bare == *"BARE_JP:$exp_nav_home/日本"* && $out_16a_bare == *"BARE_ROCKET:$exp_nav_home/🚀_launch"* ]] \
+      && pass "Bare shortcodes '$bare_c_jp' (-> ~/日本) and '$bare_c_rocket' (-> ~/🚀_launch) jump via AUTO_CD + CDABLE_VARS" \
+      || fail "Suite 16a bare AUTO_CD failed: $out_16a_bare"
+  else
+    fail "Suite 16a invalid extracted bare shortcodes: '$codes_line'"
+  fi
+
+  # Powerlevel10k `prompt_dir` + `prompt_znav` inside `~/日本`
+  local out_16a_p10k
+  out_16a_p10k=$(HOME="$exp_nav_home" ZNAV_DATA_DIR="$sb/p10k_data" LC_ALL="$utf8_loc" LANG="$utf8_loc" TERM=dumb \
+    /bin/zsh -dfi +Z +m -c '
+      PROMPT="" RPROMPT=""
+      setopt prompt_percent prompt_subst warn_create_global
+      typeset -ga P10K_SEGS=()
+      p10k() {
+        [[ ${1:-} == segment ]] || return 0
+        shift
+        local opt cond="" text="" expand=0
+        local -i OPTIND=1
+        local OPTARG
+        while getopts ":s:b:f:i:c:t:reh" opt; do
+          case $opt in
+            c) cond=$OPTARG ;;
+            t) text=$OPTARG ;;
+            e) expand=1 ;;
+          esac
+        done
+        if [[ -n $cond ]]; then
+          local cv=${(e):-"$cond"}
+          [[ -z $cv ]] && return 0
+        fi
+        (( expand )) && P10K_SEGS+=("znav:${(e):-"$text"}") || P10K_SEGS+=("znav:$text")
+      }
+      prompt_dir() { P10K_SEGS+=("dir:${(%):-%~}"); }
+      typeset -ga POWERLEVEL9K_LEFT_PROMPT_ELEMENTS=(dir vcs newline prompt_char)
+      source "$1" || exit 11
+      cd "$HOME/日本" || exit 12
+      local c_jp=${_ZNAV_DIR2CODE[$HOME/日本]}
+      [[ -n $c_jp && $ZNAV_PWD_CODE == $c_jp ]] || exit 13
+      P10K_SEGS=()
+      prompt_dir
+      prompt_znav
+      [[ "${(j: :)P10K_SEGS}" == "dir:~/日本 znav:~${c_jp}" ]] || { print -r -- "P10K_JP_BAD:${P10K_SEGS[*]}"; exit 14; }
+      [[ ${nameddirs[$c_jp]:-} == "$HOME/日本" ]] || { print -r -- "P10K_JP_UNRESTORED"; exit 15; }
+      print -r -- "P10K_JP_OK"
+    ' _ "$REPO_ROOT/zsh-znav.plugin.zsh" 2>&1)
+  assert_true $? "Suite 16a Powerlevel10k prompt_dir + prompt_znav inside ~/日本 exited 0"
+  [[ $out_16a_p10k == *"P10K_JP_OK"* ]] \
+    && pass "Powerlevel10k prompt_dir + prompt_znav inside ~/日本 renders full 'dir:~/日本' + 'znav:~<code>'" \
+    || fail "Suite 16a P10k output: $out_16a_p10k"
+
+  # `znav import --cdr` (PATH="") & `znav import --zoxide` with `日本` / Unicode paths
+  cat > "$sb/zo_bin/zoxide" <<EOF
+#!/bin/zsh -f
+if [[ "\$1" == "query" && "\$2" == "-ls" ]]; then
+  print -r -- "  32.0 $exp_nav_home/日本"
+  print -r -- "  16.0 $exp_nav_home/東京/日本"
+  print -r -- "   8.0 $exp_nav_home/한국"
+  exit 0
+fi
+exit 1
+EOF
+  /bin/chmod +x "$sb/zo_bin/zoxide"
+
+  local cdr_u_file="$sb/cdr_unicode_dirs"
+  HOME="$exp_nav_home" LC_ALL="$utf8_loc" /bin/zsh -df -c '
+    local -a entries=("$1/日本" "$1/東京/日本" "$1/🚀_launch")
+    print -rl -- "${(@qqqq)entries}" > "$2"
+  ' _ "$exp_nav_home" "$cdr_u_file"
+
+  local out_16a_imp
+  out_16a_imp=$(HOME="$exp_nav_home" ZNAV_DATA_DIR="$sb/cdr_data" ZNAV_AUTO_SEED=0 ZNAV_NOW="1700200000.0" \
+    LC_ALL="$utf8_loc" LANG="$utf8_loc" TERM=dumb \
+    /bin/zsh -dfi +Z +m -c '
+      PROMPT="" RPROMPT=""
+      zmodload zsh/mathfunc
+      source "$1" || exit 11
+      PATH=""
+      znav import --cdr --file "$2" || exit 12
+      (( ${#_ZNAV_SCORE} == 3 )) || { print -r -- "CDR_U_CNT:${#_ZNAV_SCORE}"; exit 13; }
+      float -E 17 s0=${_ZNAV_SCORE[$HOME/日本]} s1=${_ZNAV_SCORE[$HOME/東京/日本]} s2=${_ZNAV_SCORE[$HOME/🚀_launch]}
+      (( abs(s0 - 1700200000.0) < 1e-7 && abs(s1 - 1700199940.0) < 1e-7 && abs(s2 - 1700199880.0) < 1e-7 )) || exit 14
+      [[ ~[日本] == "$HOME/日本" && ~[東京:日本] == "$HOME/東京/日本" ]] || exit 15
+      print -r -- "CDR_UNICODE_OK"
+    ' _ "$PLUGIN_FILE" "$cdr_u_file" 2>&1)
+  assert_true $? "Suite 16a znav import --cdr with 日本 paths under PATH=\"\" exited 0"
+  [[ $out_16a_imp == *"CDR_UNICODE_OK"* ]] \
+    && pass "znav import --cdr imports UTF-8 (qqqq) 日本/東京/🚀_launch paths cleanly with PATH=\"\"" \
+    || fail "Suite 16a cdr Unicode import failed: $out_16a_imp"
+
+  local out_16a_zo
+  out_16a_zo=$(HOME="$exp_nav_home" ZNAV_DATA_DIR="$sb/zo_data" ZNAV_AUTO_SEED=0 ZNAV_NOW="1700210000.0" \
+    PATH="$sb/zo_bin:/usr/bin:/bin" LC_ALL="$utf8_loc" LANG="$utf8_loc" TERM=dumb \
+    /bin/zsh -dfi +Z +m -c '
+      PROMPT="" RPROMPT=""
+      zmodload zsh/mathfunc
+      source "$1" || exit 21
+      znav import --zoxide || exit 22
+      float -E 17 tau=$(( 259200.0 / log(2.0) ))
+      float -E 17 exp_jp=$(( 1700210000.0 + tau * log(32.0) ))
+      float -E 17 got_jp=${_ZNAV_SCORE[$HOME/日本]}
+      (( abs(got_jp - exp_jp) < 1e-7 && ${+_ZNAV_SCORE[$HOME/東京/日本]} && ${+_ZNAV_SCORE[$HOME/한국]} )) || exit 23
+      [[ ~[日本] == "$HOME/日本" && ~[東京:日本] == "$HOME/東京/日本" ]] || exit 24
+      print -r -- "ZO_UNICODE_OK"
+    ' _ "$PLUGIN_FILE" 2>&1)
+  assert_true $? "Suite 16a znav import --zoxide with 日本 paths exited 0"
+  [[ $out_16a_zo == *"ZO_UNICODE_OK"* ]] \
+    && pass "znav import --zoxide maps & compacts 日本, 東京/日本, and 한국 paths accurately" \
+    || fail "Suite 16a zoxide Unicode import failed: $out_16a_zo"
+
+  # Plugin & ZNAV_DATA_DIR residing inside `/tmp/.../日本/zsh-znav` + `zcompile` bytecode under `PATH=""` zero-fork!
+  local uni_plug_dir="$sb/日本/zsh-znav"
+  local uni_data_dir="$sb/日本/zsh-znav/data"
+  local uni_home_dir="$sb/plug_home"
+  zf_mkdir -p "$uni_plug_dir/functions" "$uni_data_dir" "$uni_home_dir/日本/sub" "$uni_home_dir/東京/日本" "$uni_home_dir/한국"
+  /bin/cp "$REPO_ROOT/znav.plugin.zsh" "$REPO_ROOT/zsh-znav.plugin.zsh" "$uni_plug_dir/"
+  local _ufn
+  for _ufn in "$REPO_ROOT"/functions/*(.N); do
+    [[ $_ufn == *.zwc || $_ufn == *.zwc.old ]] && continue
+    /bin/cp "$_ufn" "$uni_plug_dir/functions/"
+  done
+  local u_err1="$sb/uplug_err1.log" u_err2="$sb/uplug_err2.log"
+
+  HOME="${uni_home_dir:A}" ZNAV_DATA_DIR="${uni_data_dir:A}" LC_ALL="$utf8_loc" LANG="$utf8_loc" TERM=dumb \
+    /bin/zsh -dfi +Z +m -c '
+      PROMPT="" RPROMPT="" PS1="" PS2=""
+      setopt NO_PROMPT_SP warn_create_global
+      zmodload zsh/system zsh/parameter
+      source "$1" || exit 11
+      [[ $ZNAV_PLUGIN_DIR == "${1:A:h}" && $ZNAV_PLUGIN_DIR == */日本/zsh-znav ]] || exit 12
+      PATH=""
+      integer orig_pid=${sysparams[pid]}
+
+      znav seed "$HOME/東京" || exit 13
+      repeat 2 {
+        builtin cd -q /
+        cd "$HOME/日本" || exit 14
+      }
+      local c_jp=${_ZNAV_DIR2CODE[$HOME/日本]}
+      [[ -n $c_jp && ${~:-~$c_jp} == "$HOME/日本" && ~[$c_jp] == "$HOME/日本" ]] || exit 15
+      [[ ~[日本] == "$HOME/日本" && ~[東京:日本] == "$HOME/東京/日本" ]] || exit 16
+      j 東京 日本 && [[ $PWD == "$HOME/東京/日本" ]] || exit 17
+      j 日本 && [[ $PWD == "$HOME/日本" ]] || exit 18
+      znav list >/dev/null && znav explain "$HOME/日本" >/dev/null && znav stats >/dev/null || exit 19
+      znav compact || exit 20
+      znav prune || exit 21
+      znav compile || exit 22
+
+      (( ZSH_SUBSHELL == 0 && sysparams[pid] == orig_pid )) || exit 23
+    ' _ "$uni_plug_dir/zsh-znav.plugin.zsh" 2>"$u_err1"
+  assert_true $? "Sourcing zsh-znav.plugin.zsh from .../日本/zsh-znav + znav compile succeeded with PATH=\"\""
+  assert_eq "$(<"$u_err1")" "" "Zero stderr when plugin & ZNAV_DATA_DIR live inside .../日本/zsh-znav under PATH=\"\""
+  [[ -f "$uni_plug_dir/znav.plugin.zsh.zwc" && -f "$uni_plug_dir/zsh-znav.plugin.zsh.zwc" && -f "$uni_plug_dir/functions/znav.zwc" ]] \
+    && pass "znav compile generated .zwc wordcode files inside .../日本/zsh-znav" \
+    || fail "Missing .zwc files inside $uni_plug_dir"
+
+  # Fresh shell executing bytecode-compiled (.zwc) plugin & functions from .../日本/zsh-znav under PATH="" (both UTF-8 & LC_ALL=C)
+  local u_err3="$sb/uplug_err3.log"
+  HOME="${uni_home_dir:A}" ZNAV_DATA_DIR="${uni_data_dir:A}" LC_ALL="$utf8_loc" LANG="$utf8_loc" TERM=dumb \
+    /bin/zsh -dfi +Z +m -c '
+      PROMPT="" RPROMPT="" PS1="" PS2=""
+      setopt NO_PROMPT_SP warn_create_global
+      zmodload zsh/system zsh/parameter
+      source "$1" || exit 31
+      PATH=""
+      integer orig_pid=${sysparams[pid]}
+      [[ ~[日本] == "$HOME/日本" && ~[東京:日本] == "$HOME/東京/日本" ]] || exit 32
+      j 日本 && [[ $PWD == "$HOME/日本" ]] || exit 33
+      (( ZSH_SUBSHELL == 0 && sysparams[pid] == orig_pid )) || exit 34
+    ' _ "$uni_plug_dir/zsh-znav.plugin.zsh" 2>"$u_err2"
+  assert_true $? "Bytecode-compiled (.zwc) plugin inside .../日本/zsh-znav reloaded & navigated with 0 forks (UTF-8)"
+  assert_eq "$(<"$u_err2")" "" "Zero stderr on UTF-8 bytecode reload from .../日本/zsh-znav"
+
+  HOME="${uni_home_dir:A}" ZNAV_DATA_DIR="${uni_data_dir:A}" LC_ALL=C LANG=C TERM=dumb \
+    /bin/zsh -dfi +Z +m -c '
+      PROMPT="" RPROMPT="" PS1="" PS2=""
+      setopt NO_PROMPT_SP warn_create_global
+      zmodload zsh/system zsh/parameter
+      source "$1" || exit 35
+      PATH=""
+      integer orig_pid=${sysparams[pid]}
+      local c_jp=${_ZNAV_DIR2CODE[$HOME/日本]}
+      [[ -n $c_jp && ${~:-~$c_jp} == "$HOME/日本" && ~[$c_jp] == "$HOME/日本" ]] || exit 36
+      j "$c_jp" && [[ $PWD == "$HOME/日本" ]] || exit 37
+      (( ZSH_SUBSHELL == 0 && sysparams[pid] == orig_pid )) || exit 38
+    ' _ "$uni_plug_dir/zsh-znav.plugin.zsh" 2>"$u_err3"
+  assert_true $? "Plugin inside .../日本/zsh-znav sourced & navigated cleanly under strict LC_ALL=C with PATH=\"\""
+  assert_eq "$(<"$u_err3")" "" "Zero stderr on LC_ALL=C plugin load from .../日本/zsh-znav"
+
+  # ----------------------------------------------------------------------------
+  # 16b. Exhaustive Zero-Naming-Collision Validation & NFC/NFD Canonicalization
+  # ----------------------------------------------------------------------------
+  local col_home="$sb/col_home"
+  local col_data="$sb/col_data"
+  zf_mkdir -p "$col_home" "$col_data"
+  local exp_col_home=${col_home:A}
+
+  local -a cluster_rel=(
+    # 10 pure-Unicode siblings
+    "日本" "日本語" "東京" "京都" "大阪" "한국" "서울" "Москва" "Αθήνα" "🚀"
+    # 6 literal ASCII fallback-stem colliders
+    "di" "dir" "dir_2" "dir_3" "home_dir" "home_dir_2"
+    # 5 multi-parent identical Unicode basenames
+    "work/日本" "code/日本" "play/日本" "日本/東京" "東京/日本"
+    # 6 accented/mixed near-colliders
+    "café" "cafe" "cafeteria" "日本_api" "東京_api" "api"
+  )
+  local _rel
+  for _rel in "${cluster_rel[@]}"; do
+    zf_mkdir -p "$exp_col_home/$_rel"
+  done
+
+  local cluster_dump="$sb/cluster_dump.tsv"
+  local reserved_dump="$sb/reserved_dump.txt"
+  local out_16b
+  out_16b=$(HOME="$exp_col_home" ZNAV_DATA_DIR="$col_data" ZNAV_AUTO_SEED=0 LC_ALL="$utf8_loc" LANG="$utf8_loc" TERM=dumb \
+    /bin/zsh -dfi +Z +m -c '
+      PROMPT="" RPROMPT="" PS1="" PS2=""
+      setopt NO_PROMPT_SP extended_glob warn_create_global
+      source "$1" || exit 11
+
+      local -a rels=("${@[4,-1]}")
+      local r d c
+      for r in "${rels[@]}"; do
+        builtin cd -q /
+        ZNAV_NOW=1700100000.0 cd -- "$HOME/$r" || exit 12
+      done
+      _znav_ensure_full_bijection
+
+      integer total=${#rels}
+      # (i) Zero naming collisions & exact cardinality across all maps and $nameddirs
+      (( ${#_ZNAV_SCORE} == total && ${#_ZNAV_DIR2CODE} == total && ${#_ZNAV_CODE2DIR} == total && ${#_ZNAV_OWNED_NAMEDDIRS} == total )) || {
+        print -r -- "CARD_MISMATCH:${#_ZNAV_SCORE}|${#_ZNAV_DIR2CODE}|${#_ZNAV_CODE2DIR}|${#_ZNAV_OWNED_NAMEDDIRS}!=$total"
+        exit 13
+      }
+
+      local -A seen_codes=() seen_targets=()
+      for d in "${_ZNAV_RANKED_DIRS[@]}"; do
+        c=${_ZNAV_DIR2CODE[$d]:-}
+        [[ -n $c ]] || { print -r -- "EMPTY_CODE:$d"; exit 14; }
+        # (ii) Every shortcode matches ^[a-z_][a-z0-9_]+$ under LC_ALL=C
+        () {
+          local LC_ALL=C
+          [[ $c == [a-z_][a-z0-9_]## ]] || { print -r -- "INVALID_ID_SYNTAX:$c"; exit 15; }
+        }
+        (( ! $+seen_codes[$c] )) || { print -r -- "DUP_CODE:$c"; exit 16; }
+        (( ! $+seen_targets[$d] )) || { print -r -- "DUP_TARGET:$d"; exit 17; }
+        seen_codes[$c]=1
+        seen_targets[$d]=1
+        [[ ${_ZNAV_CODE2DIR[$c]:-} == $d && ${nameddirs[$c]:-} == $d ]] || {
+          print -r -- "INVERSE_MISMATCH:$d<->$c"
+          exit 18
+        }
+        # (iii) Exact round-trip ~code == d, ~[code] == d, j -p code == d, and live `j code` -> PWD == d
+        [[ ${~:-~$c} == $d ]] || { print -r -- "ROUNDTRIP_TILDE:$c:${~:-~$c}!=$d"; exit 19; }
+        [[ ~[$c] == $d ]] || { print -r -- "ROUNDTRIP_DYN:$c:~[$c]!=$d"; exit 20; }
+        [[ $(j -p "$c") == $d ]] || { print -r -- "ROUNDTRIP_JP:$c"; exit 21; }
+        ( builtin cd -q / && j "$c" && [[ $PWD == $d ]] ) || { print -r -- "ROUNDTRIP_J_CD:$c->$d"; exit 22; }
+      done
+
+      # Dump ranked order & assigned phi for 1-to-1 verification against proofs/znav_spec.py
+      integer idx=0
+      : > "$2"
+      for d in "${_ZNAV_RANKED_DIRS[@]}"; do
+        (( idx++ ))
+        builtin printf "%d\t%s\t%s\n" $idx "${_ZNAV_DIR2CODE[$d]}" "$d" >> "$2"
+      done
+
+      # Query Zsh reserved set over relevant candidates so Python spec checks exact R
+      : > "$3"
+      local -a probe_cands=()
+      for d in "${_ZNAV_RANKED_DIRS[@]}"; do
+        _znav_candidates_finite "$d"
+        probe_cands+=("${reply[@]}")
+        _znav_tier5_stem "$d"
+        probe_cands+=("$REPLY")
+        integer k
+        for (( k = 2; k <= 35; k++ )); do
+          probe_cands+=("${REPLY}_${k}")
+        done
+      done
+      local -U uniq_cands=("${probe_cands[@]}")
+      for c in "${uniq_cands[@]}"; do
+        if (( ! $+_ZNAV_OWNED_NAMEDDIRS[$c] )) && _znav_is_reserved "$c"; then
+          builtin print -r -- "$c" >> "$3"
+        fi
+      done
+
+      # (iv) No-Hijack stability: ~/日本 visited 5x keeps its shortcode after new ~/沖縄 is visited 1x
+      repeat 4 {
+        builtin cd -q /
+        ZNAV_NOW=1700100010.0 cd "$HOME/日本" || exit 23
+      }
+      local code_jp_5x=${_ZNAV_DIR2CODE[$HOME/日本]}
+      /bin/mkdir -p "$HOME/沖縄"
+      ZNAV_NOW=1700100020.0 cd "$HOME/沖縄" || exit 24
+      _znav_ensure_full_bijection
+      local code_jp_after=${_ZNAV_DIR2CODE[$HOME/日本]}
+      local code_okinawa=${_ZNAV_DIR2CODE[$HOME/沖縄]}
+      [[ $code_jp_after == $code_jp_5x && $code_okinawa != $code_jp_5x ]] || {
+        print -r -- "HIJACKED_JP:$code_jp_5x->$code_jp_after|oki=$code_okinawa"
+        exit 25
+      }
+      [[ ${~:-~$code_jp_5x} == "$HOME/日本" && ~[$code_jp_5x] == "$HOME/日本" && ${~:-~$code_okinawa} == "$HOME/沖縄" ]] || exit 26
+      j "$code_jp_5x" && [[ $PWD == "$HOME/日本" ]] || exit 27
+      (( ${#_ZNAV_DIR2CODE} == total + 1 && ${#_ZNAV_CODE2DIR} == total + 1 )) || exit 28
+
+      print -r -- "S16B_CLUSTER_OK"
+    ' _ "$PLUGIN_FILE" "$cluster_dump" "$reserved_dump" "${cluster_rel[@]}" 2>&1)
+  assert_true $? "Suite 16b 27-way Unicode + ASCII collider cluster shell exited 0"
+  [[ $out_16b == *"S16B_CLUSTER_OK"* ]] \
+    && pass "Zero naming collisions across 27 Unicode/ASCII colliders: exact ~code, ~[code], j round-trips & No-Hijack stability (日本 vs 沖縄)" \
+    || fail "Suite 16b cluster output: $out_16b"
+
+  # (v) Verify equal-byte-length UTF-8 tie-breaking (日本 < 東京 < 한국 & zzzzzz < 日本) + 1-to-1 phi match vs proofs/znav_spec.py
+  local tie_ascii_utf8
+  tie_ascii_utf8=$(HOME="$sb/tie_home" ZNAV_DATA_DIR="$sb/tie_data" ZNAV_AUTO_SEED=0 LC_ALL="$utf8_loc" LANG="$utf8_loc" TERM=dumb \
+    /bin/zsh -dfi +Z +m -c '
+      PROMPT="" RPROMPT=""
+      /bin/mkdir -p "$HOME/한국" "$HOME/東京" "$HOME/日本" "$HOME/zzzzzz"
+      source "$1" || exit 11
+      for sub in 한국 東京 日本 zzzzzz; do
+        builtin cd -q /
+        ZNAV_NOW=1700150000.0 cd "$HOME/$sub" || exit 12
+      done
+      _znav_sort_dirs
+      print -r -- "TIE_ORDER:${_ZNAV_RANKED_DIRS[1]:t}|${_ZNAV_RANKED_DIRS[2]:t}|${_ZNAV_RANKED_DIRS[3]:t}|${_ZNAV_RANKED_DIRS[4]:t}"
+    ' _ "$PLUGIN_FILE" 2>&1)
+  assert_true $? "Suite 16b equal-byte-length unsigned UTF-8 tie-break shell exited 0"
+  [[ $tie_ascii_utf8 == *"TIE_ORDER:zzzzzz|日本|東京|한국"* ]] \
+    && pass "Equal-byte-length (6B) tie-break matches unsigned UTF-8 byte order: zzzzzz (0x7a) < 日本 (0xe6 0x97) < 東京 (0xe6 0x9d) < 한국 (0xed)" \
+    || fail "Unsigned UTF-8 byte tie-break mismatch: $tie_ascii_utf8"
+
+  local spec_check_16b
+  spec_check_16b=$(python3 -B - "$REPO_ROOT" "$cluster_dump" "$reserved_dump" "$exp_col_home" 2>&1 <<'PYEOF'
+import re
+import sys
+from pathlib import Path
+
+repo = Path(sys.argv[1])
+dump_p = Path(sys.argv[2])
+res_p = Path(sys.argv[3])
+home_s = sys.argv[4]
+
+sys.path.insert(0, str(repo / "proofs"))
+import znav_spec  # type: ignore
+
+rows = []
+for ln in dump_p.read_text(encoding="utf-8").splitlines():
+    rk_s, code, d = ln.split("\t", 2)
+    rows.append((int(rk_s), code, d))
+
+assert len(rows) == 27, f"Expected 27 rows, got {len(rows)}"
+zsh_ordered = [d for _, _, d in rows]
+zsh_phi = {d: code for _, code, d in rows}
+
+# Check regex & uniqueness
+id_re = re.compile(r"^[a-z_][a-z0-9_]+$")
+for d, code in zsh_phi.items():
+    assert id_re.fullmatch(code), f"Invalid shortcode {code!r} for {d!r}"
+assert len(set(zsh_phi.values())) == len(zsh_phi) == 27
+
+# Check equal-byte-length siblings order in the 27-dir cluster
+r_jp = zsh_ordered.index(f"{home_s}/日本")
+r_tk = zsh_ordered.index(f"{home_s}/東京")
+r_kr = zsh_ordered.index(f"{home_s}/한국")
+assert r_jp < r_tk < r_kr, f"Expected rank(日本) < rank(東京) < rank(한국), got {r_jp}, {r_tk}, {r_kr}"
+
+# Compare full 27-directory ranking and phi bijection against proofs/znav_spec.py
+scores = {d: 1700100000.0 for d in zsh_ordered}
+reserved = {ln.strip() for ln in res_p.read_text(encoding="utf-8").splitlines() if ln.strip()}
+spec_ordered = znav_spec.sort_directories_desc(scores)
+spec_phi = znav_spec.assign_shortcodes(scores, reserved)
+
+assert zsh_ordered == spec_ordered, f"Order mismatch vs znav_spec.py:\n  zsh ={zsh_ordered}\n  spec={spec_ordered}"
+assert zsh_phi == spec_phi, f"Phi mismatch vs znav_spec.py:\n  zsh ={zsh_phi}\n  spec={spec_phi}"
+print("SPEC_16B_PARITY_OK")
+PYEOF
+  )
+  assert_true $? "Suite 16b 1-to-1 cluster ranking & shortcode parity with proofs/znav_spec.py exited 0"
+  [[ $spec_check_16b == *"SPEC_16B_PARITY_OK"* ]] \
+    && pass "All 27 Unicode & ASCII collider shortcodes match proofs/znav_spec.py 1-to-1" \
+    || fail "Suite 16b spec parity failed: $spec_check_16b"
+
+  # (vi) NFC vs NFD Unicode normalization check (`が` U+304C vs `か\u3099` U+304B U+3099 & `café` U+00E9 vs `cafe\u0301`)
+  local norm_home="$sb/norm_home"
+  local norm_data="$sb/norm_data"
+  zf_mkdir -p "$norm_home" "$norm_data"
+  local exp_norm_home=${norm_home:A}
+
+  local out_16b_norm
+  out_16b_norm=$(HOME="$exp_norm_home" ZNAV_DATA_DIR="$norm_data" ZNAV_AUTO_SEED=0 LC_ALL="$utf8_loc" LANG="$utf8_loc" TERM=dumb \
+    /bin/zsh -dfi +Z +m -c '
+      PROMPT="" RPROMPT=""
+      zmodload -F zsh/stat b:zstat
+      setopt extended_glob warn_create_global
+
+      local ga_nfc="$HOME/"$'\''\xe3\x81\x8c'\''
+      local ga_nfd="$HOME/"$'\''\xe3\x81\x8b\xe3\x82\x99'\''
+      local cf_nfc="$HOME/"$'\''caf\xc3\xa9'\''
+      local cf_nfd="$HOME/"$'\''cafe\xcc\x81'\''
+      /bin/mkdir -p "$ga_nfc" "$ga_nfd" "$cf_nfc" "$cf_nfd" || exit 11
+
+      local ino_ga1 ino_ga2 ino_cf1 ino_cf2
+      ino_ga1=$(zstat +inode "$ga_nfc") || exit 12
+      ino_ga2=$(zstat +inode "$ga_nfd") || exit 13
+      ino_cf1=$(zstat +inode "$cf_nfc") || exit 14
+      ino_cf2=$(zstat +inode "$cf_nfd") || exit 15
+
+      source "$1" || exit 16
+      for p in "$ga_nfc" "$ga_nfd" "$cf_nfc" "$cf_nfd"; do
+        builtin cd -q /
+        cd -- "$p" || exit 17
+      done
+      znav compact || exit 18
+
+      if [[ $ino_ga1 == $ino_ga2 && $ino_cf1 == $ino_cf2 ]]; then
+        # Normalization-insensitive FS (e.g. macOS APFS): :A must converge & prevent duplicate keys!
+        [[ ${ga_nfc:A} == ${ga_nfd:A} && ${cf_nfc:A} == ${cf_nfd:A} ]] || { print -r -- "APFS_CANON_DIVERGED"; exit 19; }
+        (( ${#_ZNAV_SCORE} == 2 && ${#_ZNAV_DIR2CODE} == 2 && ${#_ZNAV_CODE2DIR} == 2 )) || {
+          print -r -- "APFS_DUP_NFC_NFD:${#_ZNAV_SCORE}"
+          exit 20
+        }
+      else
+        # Byte-distinct FS (e.g. Linux ext4/tmpfs): :A stays distinct & assigns 4 collision-free shortcodes!
+        [[ ${ga_nfc:A} != ${ga_nfd:A} && ${cf_nfc:A} != ${cf_nfd:A} ]] || { print -r -- "EXT4_CANON_MERGED"; exit 21; }
+        (( ${#_ZNAV_SCORE} == 4 && ${#_ZNAV_DIR2CODE} == 4 && ${#_ZNAV_CODE2DIR} == 4 )) || {
+          print -r -- "EXT4_COLLISION:${#_ZNAV_SCORE}|${#_ZNAV_DIR2CODE}|${#_ZNAV_CODE2DIR}"
+          exit 22
+        }
+      fi
+
+      local d c
+      for d in "${(@k)_ZNAV_SCORE}"; do
+        c=${_ZNAV_DIR2CODE[$d]}
+        () { local LC_ALL=C; [[ $c == [a-z_][a-z0-9_]## ]] || exit 23; }
+        [[ ${~:-~$c} == $d && ~[$c] == $d ]] || exit 24
+        ( builtin cd -q / && j "$c" && [[ $PWD == $d ]] ) || exit 25
+      done
+      print -r -- "NFC_NFD_OK:count=${#_ZNAV_SCORE}"
+    ' _ "$PLUGIN_FILE" 2>&1)
+  assert_true $? "Suite 16b NFC vs NFD Unicode normalization check exited 0"
+  [[ $out_16b_norm == *"NFC_NFD_OK:"* ]] \
+    && pass "NFC vs NFD normalization (が vs か+◌゙, café vs cafe+◌́) canonicalizes cleanly with zero shortcode collisions" \
+    || fail "Suite 16b NFC/NFD output: $out_16b_norm"
+
+  # ----------------------------------------------------------------------------
+  # 16c. Updated Security Checks for Unicode & Adversarial Scenarios
+  # ----------------------------------------------------------------------------
+  local pwn_sentinel="$SANDBOX_ROOT/PWNED_UNICODE_16C"
+
+  # 16c-1. Unicode Command & Glob/Subscript Injection across all paths + eviction + import + P10k
+  local sec1_home="$sb/sec1_home"
+  local sec1_data="$sb/sec1_data"
+  local sec1_cdr_data="$sb/sec1_cdr_data"
+  local sec1_zo_data="$sb/sec1_zo_data"
+  local sec1_bin="$sb/sec1_bin"
+  zf_mkdir -p "$sec1_home" "$sec1_data" "$sec1_cdr_data" "$sec1_zo_data" "$sec1_bin"
+  local exp_sec1_home=${sec1_home:A}
+
+  local d_u_cmd="$exp_sec1_home/日本\$(touch $pwn_sentinel)"
+  local d_u_bt="$exp_sec1_home/東京\`touch $pwn_sentinel\`"
+  local d_u_env="$exp_sec1_home/한국\$HOME"
+  local d_u_semi="$exp_sec1_home/Москва;touch $pwn_sentinel"
+  local d_u_q1="$exp_sec1_home/日本'\\\"\\\$(touch $pwn_sentinel)"
+  local d_u_q2="$exp_sec1_home/日本'\"\$(touch $pwn_sentinel)"
+  local d_u_glob="$exp_sec1_home/日本[1]*?(test)"
+  local d_u_top1="$exp_sec1_home/TOP_ALPHA"
+  local d_u_top2="$exp_sec1_home/TOP_BETA"
+  local d_u_prune="$exp_sec1_home/日本_prune[1]\$(touch $pwn_sentinel)"
+
+  zf_mkdir -p "$d_u_cmd" "$d_u_bt" "$d_u_env" "$d_u_semi" "$d_u_q1" "$d_u_q2" "$d_u_glob" "$d_u_top1" "$d_u_top2" "$d_u_prune"
+
+  local out_16c1
+  out_16c1=$(HOME="$exp_sec1_home" ZNAV_DATA_DIR="$sec1_data" LC_ALL="$utf8_loc" LANG="$utf8_loc" TERM=dumb \
+    /bin/zsh -dfi +Z +m -c '
+      PROMPT="" RPROMPT=""
+      setopt warn_create_global
+      p10k() { return 0; }
+      prompt_dir() { local _p=${(%):-%~}; }
+      typeset -ga POWERLEVEL9K_LEFT_PROMPT_ELEMENTS=(dir vcs)
+
+      source "$1" || exit 11
+      znav seed "$HOME" >/dev/null || exit 12
+
+      local -a targets=("${@[2,-1]}")
+      local d c
+      for d in "${targets[@]}"; do
+        builtin cd -q /
+        cd -- "$d" || exit 13
+        prompt_dir || exit 14
+        prompt_znav || exit 15
+      done
+
+      for d in "${targets[@]}"; do
+        c=${_ZNAV_DIR2CODE[$d]:-}
+        [[ -n $c && ${~:-~$c} == $d && ~[$c] == $d ]] || { print -r -- "SEC1_PROJ_FAIL:$d"; exit 16; }
+        j "$c" && [[ $PWD == $d ]] || { print -r -- "SEC1_JUMP_FAIL:$c"; exit 17; }
+        znav explain "$d" >/dev/null || exit 18
+        znav explain "$c" >/dev/null || exit 19
+      done
+      znav list >/dev/null || exit 20
+      znav list --tsv >/dev/null || exit 21
+      znav stats >/dev/null || exit 22
+
+      # Trigger ZNAV_MAX_NAMEDDIRS=2 eviction over Unicode [1]*?(test) & $(touch ...) entries
+      ZNAV_MAX_NAMEDDIRS=2
+      _znav_rebuild_projections
+      repeat 6 {
+        ZNAV_NOW=1799000000.0 cd -- "$HOME/TOP_ALPHA" || exit 23
+        ZNAV_NOW=1799000000.0 cd -- "$HOME/TOP_BETA" || exit 24
+      }
+      ZNAV_MAX_NAMEDDIRS=256
+      _znav_rebuild_projections
+
+      # Delete Unicode glob+command-injection dir and exercise `znav prune` + `znav compact`
+      builtin cd -q "$HOME"
+      /bin/rmdir -- "$HOME/日本_prune[1]\$(touch '"$pwn_sentinel"')" || exit 25
+      znav prune || exit 26
+      znav compact || exit 27
+      print -r -- "SEC1_MAIN_OK"
+    ' _ "$REPO_ROOT/zsh-znav.plugin.zsh" \
+      "$d_u_cmd" "$d_u_bt" "$d_u_env" "$d_u_semi" "$d_u_q1" "$d_u_q2" "$d_u_glob" "$d_u_top1" "$d_u_top2" "$d_u_prune" 2>&1)
+  assert_true $? "Suite 16c-1 Unicode injection & glob/subscript torture exited 0"
+  [[ ! -e $pwn_sentinel ]] && pass "Security: Zero command executions across Unicode \$(...), \`...\`, \$HOME, ;, quotes & [1]*?(test)" \
+                           || fail "CRITICAL SECURITY BUG: pwn_sentinel created during Unicode path operations!"
+
+  # Reload compacted DB + test import --cdr and --zoxide with adversarial Unicode paths
+  local sec1_cdr_file="$sb/sec1_cdr"
+  local -a sec1_adv_dirs=("$d_u_cmd" "$d_u_bt" "$d_u_env" "$d_u_semi" "$d_u_q1" "$d_u_q2" "$d_u_glob")
+  print -rl -- "${(@qqqq)sec1_adv_dirs}" > "$sec1_cdr_file"
+  cat > "$sec1_bin/zoxide" <<EOF
+#!/bin/zsh -f
+if [[ "\$1" == "query" && "\$2" == "-ls" ]]; then
+  print -r -- "  10.0 "${(q)d_u_cmd}
+  print -r -- "   9.0 "${(q)d_u_bt}
+  print -r -- "   8.0 "${(q)d_u_glob}
+  exit 0
+fi
+exit 1
+EOF
+  /bin/chmod +x "$sec1_bin/zoxide"
+
+  local out_16c1_reload
+  out_16c1_reload=$(HOME="$exp_sec1_home" ZNAV_DATA_DIR="$sec1_data" ZNAV_AUTO_SEED=0 \
+    PATH="$sec1_bin:/usr/bin:/bin" LC_ALL="$utf8_loc" LANG="$utf8_loc" TERM=dumb \
+    /bin/zsh -dfi +Z +m -c '
+      PROMPT="" RPROMPT=""
+      setopt extended_glob warn_create_global
+      source "$1" || exit 11
+      local d
+      for d in "${@[4,-1]}"; do
+        (( ${+_ZNAV_SCORE[$d]} )) || { print -r -- "MISSING_RELOAD:$d"; exit 12; }
+      done
+      ZNAV_DATA_DIR="$2" _znav_load_db
+      ZNAV_DATA_DIR="$2" znav import --cdr --file "$3" || exit 13
+      for d in "${@[4,-1]}"; do
+        (( ${+_ZNAV_SCORE[$d]} )) || { print -r -- "MISSING_CDR:$d"; exit 14; }
+      done
+      ZNAV_DATA_DIR="$2" znav import --zoxide || exit 15
+      print -r -- "SEC1_RELOAD_IMPORT_OK"
+    ' _ "$PLUGIN_FILE" "$sec1_cdr_data" "$sec1_cdr_file" "${sec1_adv_dirs[@]}" 2>&1)
+  assert_true $? "Suite 16c-1 fresh-shell reload + cdr/zoxide import of adversarial Unicode paths exited 0"
+  [[ ! -e $pwn_sentinel && $out_16c1 == *"SEC1_MAIN_OK"* && $out_16c1_reload == *"SEC1_RELOAD_IMPORT_OK"* ]] \
+    && pass "All 7 adversarial Unicode paths survive compact, reload, prune, eviction & cdr/zoxide import uncorrupted" \
+    || fail "Suite 16c-1 reload/import failed: $out_16c1 / $out_16c1_reload"
+
+  # 16c-2. Homoglyph / Confusable & Reserved-Set Safety
+  local sec2_home="$sb/sec2_home"
+  local sec2_data="$sb/sec2_data"
+  zf_mkdir -p "$sec2_home" "$sec2_data" "$sb/manual1" "$sb/manual2"
+  local exp_sec2_home=${sec2_home:A}
+  local exp_man1=${${:-$sb/manual1}:A}
+  local exp_man2=${${:-$sb/manual2}:A}
+
+  # Cyrillic r\u043e\u043et, fullwidth ｒｏｏｔ, ASCII R.O.O.T_日本, 日本,東京, and command/builtin colliders
+  local d_cyr_root="$exp_sec2_home/"$'r\xd0\xbe\xd0\xbet'
+  local d_fw_root="$exp_sec2_home/"$'\xef\xbd\x92\xef\xbd\x8f\xef\xbd\x8f\xef\xbd\x94'
+  zf_mkdir -p "$d_cyr_root" "$d_fw_root" \
+    "$exp_sec2_home/R.O.O.T" \
+    "$exp_sec2_home/日本" \
+    "$exp_sec2_home/東京" \
+    "$exp_sec2_home/L.S" \
+    "$exp_sec2_home/T.R" \
+    "$exp_sec2_home/C.D" \
+    "$exp_sec2_home/D.O" \
+    "$exp_sec2_home/F.I"
+
+  local out_16c2
+  out_16c2=$(HOME="$exp_sec2_home" ZNAV_DATA_DIR="$sec2_data" LC_ALL="$utf8_loc" LANG="$utf8_loc" TERM=dumb PATH="/usr/bin:/bin" \
+    /bin/zsh -dfi +Z +m -c '
+      PROMPT="" RPROMPT=""
+      setopt extended_glob warn_create_global
+      zmodload zsh/parameter
+      local orig_root=~root
+      hash -d di="$2"
+      hash -d dir="$3"
+
+      source "$1" || exit 11
+      local d
+      for d in "$HOME"/*(/N); do
+        builtin cd -q /
+        cd -- "$d" || exit 12
+      done
+      _znav_ensure_full_bijection
+
+      [[ ~root == $orig_root ]] || { print -r -- "ROOT_HIJACKED:${~root}!=$orig_root"; exit 13; }
+      [[ ~di == "$2" && ~dir == "$3" ]] || { print -r -- "MANUAL_DI_DIR_CLOBBERED:${~di}|${~dir}"; exit 14; }
+
+      local cmd
+      for cmd in ls tr cd do fi znav j; do
+        if (( $+nameddirs[$cmd] )); then
+          print -r -- "CMD_CLOBBERED:$cmd=${nameddirs[$cmd]}"
+          exit 15
+        fi
+      done
+
+      local k
+      for k in "${(@k)_ZNAV_OWNED_NAMEDDIRS}"; do
+        () { local LC_ALL=C; [[ $k == [a-z_][a-z0-9_]## ]] || { print -r -- "NON_ASCII_KEY:$k"; exit 16; }; }
+      done
+      (( ${#_ZNAV_DIR2CODE} == ${#_ZNAV_CODE2DIR} && ${#_ZNAV_DIR2CODE} == ${#_ZNAV_SCORE} )) || exit 17
+      print -r -- "HOMOGLYPH_SAFE_OK"
+    ' _ "$PLUGIN_FILE" "$exp_man1" "$exp_man2" 2>&1)
+  assert_true $? "Suite 16c-2 Homoglyph & Reserved-Set protection exited 0"
+  [[ $out_16c2 == *"HOMOGLYPH_SAFE_OK"* ]] \
+    && pass "Homoglyphs (Cyrillic rооt, fullwidth ｒｏｏｔ) & 日本 never clobber ~root, manual ~di/~dir, or ls/tr/cd/do/fi" \
+    || fail "Suite 16c-2 output: $out_16c2"
+
+  # 16c-3. Arithmetic / Subscript Command-Execution Prevention (CLI, WAL/DB replay & env vars)
+  local sec3_home="$sb/sec3_home"
+  local sec3_data="$sb/sec3_data"
+  zf_mkdir -p "$sec3_home/日本" "$sec3_data"
+  local exp_sec3_home=${sec3_home:A}
+
+  # Tamper db.tsv and wal.log with subscript command-execution payloads alongside 1 valid entry
+  cat > "$sec3_data/db.tsv" <<EOF
+S a[\$(touch $pwn_sentinel)] '$exp_sec3_home/日本'
+I b[\$(touch $pwn_sentinel)] '$exp_sec3_home/日本'
+EOF
+  cat > "$sec3_data/wal.log" <<EOF
+V a[\$(touch $pwn_sentinel)] '$exp_sec3_home/日本'
+V 1+\$(touch $pwn_sentinel) '$exp_sec3_home/日本'
+V 1700300000.0 '$exp_sec3_home/日本'
+EOF
+
+  local out_16c3
+  out_16c3=$(HOME="$exp_sec3_home" ZNAV_DATA_DIR="$sec3_data" ZNAV_AUTO_SEED=0 LC_ALL="$utf8_loc" LANG="$utf8_loc" TERM=dumb \
+    /bin/zsh -dfi +Z +m -c '
+      PROMPT="" RPROMPT=""
+      setopt warn_create_global
+      # 1. _znav_load_db replays tampered db.tsv + wal.log on source
+      source "$1" || exit 11
+      (( ${+_ZNAV_SCORE[$HOME/日本]} )) || { print -r -- "VALID_WAL_LOST"; exit 12; }
+
+      # 2. znav compact over tampered WAL/DB
+      print -r -- "V a[\$(touch $2)] '\''$HOME/日本'\''" >> "$ZNAV_DATA_DIR/wal.log"
+      znav compact || exit 13
+      (( ${+_ZNAV_SCORE[$HOME/日本]} )) || { print -r -- "LOST_AFTER_COMPACT"; exit 14; }
+
+      # 3. znav list -n / --limit arithmetic injection must fail cleanly (rc != 0) without eval!
+      integer rc1=0 rc2=0
+      znav list -n "a[\$(touch $2)]" >/dev/null 2>&1 || rc1=$?
+      znav list --limit "a[\$(touch $2)]" >/dev/null 2>&1 || rc2=$?
+      (( rc1 != 0 && rc2 != 0 )) || { print -r -- "LIST_LIMIT_ACCEPTED_BAD_INPUT:$rc1:$rc2"; exit 15; }
+
+      # 4. Tampered numeric env vars (ZNAV_NOW, _ZNAV_NOW, ZNAV_HALF_LIFE, ZNAV_MAX_NAMEDDIRS)
+      ZNAV_NOW="a[\$(touch $2)]" _ZNAV_NOW="a[\$(touch $2)]" \
+      ZNAV_HALF_LIFE="a[\$(touch $2)]" ZNAV_MAX_NAMEDDIRS="a[\$(touch $2)]" \
+        cd "$HOME/日本" 2>/dev/null || true
+      ZNAV_NOW="a[\$(touch $2)]" znav list >/dev/null 2>&1 || true
+      ZNAV_HALF_LIFE="a[\$(touch $2)]" znav stats >/dev/null 2>&1 || true
+      ZNAV_NOW="a[\$(touch $2)]" znav explain "$HOME/日本" >/dev/null 2>&1 || true
+
+      print -r -- "ARITH_GUARD_OK"
+    ' _ "$PLUGIN_FILE" "$pwn_sentinel" 2>&1)
+  assert_true $? "Suite 16c-3 arithmetic/subscript injection protection shell exited 0"
+  integer sent_16c3=0
+  [[ -e $pwn_sentinel ]] && sent_16c3=1
+  [[ $sent_16c3 -eq 0 && $out_16c3 == *"ARITH_GUARD_OK"* ]] \
+    && pass "Security: Arithmetic/subscript injection blocked in 'znav list -n', tampered wal.log/db.tsv, and numeric env vars" \
+    || fail "Suite 16c-3 arithmetic injection check failed (sentinel_exists=$sent_16c3): $out_16c3"
+  zf_rm -f "$pwn_sentinel" 2>/dev/null || true
+
+  # 16c-4. Trojan Source (BiDi U+202E, U+2066, C1 CSI) & Terminal Escape (\x1b, \x07, \r) Sanitization
+  local sec4_home="$sb/sec4_home"
+  local sec4_data="$sb/sec4_data"
+  zf_mkdir -p "$sec4_home" "$sec4_data"
+  local exp_sec4_home=${sec4_home:A}
+
+  local d_clean_jp="$exp_sec4_home/日本"
+  local d_clean_multi="$exp_sec4_home/東京_한국_Москва_café_🚀"
+  local d_spoof="$exp_sec4_home/日本_"$'\x1b]0;pwn\x07_\x1b[31m_red_\r_cr_\xc2\x9b32m_\xe2\x80\xae_rtl_\xe2\x81\xa6_iso'
+  zf_mkdir -p "$d_clean_jp" "$d_clean_multi" "$d_spoof"
+
+  local f_human_list="$sb/sec4_list.txt"
+  local f_tsv_list="$sb/sec4_tsv.txt"
+  local f_explain="$sb/sec4_explain.txt"
+  local f_jump_err="$sb/sec4_jump_err.txt"
+  local f_raw_prog="$sb/sec4_prog.txt"
+
+  local out_16c4
+  out_16c4=$(HOME="$exp_sec4_home" ZNAV_DATA_DIR="$sec4_data" ZNAV_AUTO_SEED=0 LC_ALL="$utf8_loc" LANG="$utf8_loc" TERM=dumb \
+    /bin/zsh -dfi +Z +m -c '
+      PROMPT="" RPROMPT=""
+      source "$1" || exit 11
+      for d in "$2" "$3" "$4"; do
+        builtin cd -q /
+        cd -- "$d" || exit 12
+      done
+      _znav_ensure_full_bijection
+
+      znav list > "$5" || exit 13
+      znav list --tsv > "$6" || exit 14
+      znav explain "$4" > "$7" || exit 15
+      local bad_q=$'\''no_match_\x1b]0;pwn\x07_\r_\xe2\x80\xae_\xe2\x81\xa6_日本'\''
+      znav jump "$bad_q" >/dev/null 2> "$8" && exit 16
+
+      # Programmatic outputs MUST return exact raw unescaped canonical path!
+      local c_spoof=${_ZNAV_DIR2CODE[$4]}
+      local p_tilde=${~:-~$c_spoof}
+      local p_dyn=~[$c_spoof]
+      local p_query p_jp
+      p_query=$(znav query "$c_spoof") || exit 17
+      p_jp=$(znav jump -p "$c_spoof") || exit 18
+      [[ $p_tilde == "$4" && $p_dyn == "$4" && $p_query == "$4" && $p_jp == "$4" ]] || {
+        print -r -- "PROG_RAW_CORRUPTED"
+        exit 19
+      }
+      builtin print -r -- "$p_query" > "$9"
+      print -r -- "SANITIZE_RUN_OK"
+    ' _ "$PLUGIN_FILE" "$d_clean_jp" "$d_clean_multi" "$d_spoof" \
+      "$f_human_list" "$f_tsv_list" "$f_explain" "$f_jump_err" "$f_raw_prog" 2>&1)
+  assert_true $? "Suite 16c-4 BiDi & ANSI terminal sanitization shell exited 0"
+
+  local audit_16c4
+  audit_16c4=$(python3 -B - "$f_human_list" "$f_tsv_list" "$f_explain" "$f_jump_err" "$f_raw_prog" "$d_spoof" 2>&1 <<'PYEOF'
+import sys
+from pathlib import Path
+
+list_b = Path(sys.argv[1]).read_bytes()
+tsv_b = Path(sys.argv[2]).read_bytes()
+exp_b = Path(sys.argv[3]).read_bytes()
+err_b = Path(sys.argv[4]).read_bytes()
+prog_b = Path(sys.argv[5]).read_bytes()
+spoof_b = sys.argv[6].encode("utf-8")
+
+# 1. Human-facing outputs MUST strip/escape raw ESC, BEL, CR, C1 CSI, and BiDi U+202E / U+2066
+forbidden_raw = [
+    (b"\x1b", "ESC 0x1B"),
+    (b"\x07", "BEL 0x07"),
+    (b"\r", "CR 0x0D"),
+    (b"\xc2\x9b", "UTF-8 C1 CSI U+009B"),
+    (b"\xe2\x80\xae", "Trojan Source BiDi RLO U+202E"),
+    (b"\xe2\x81\xa6", "Trojan Source BiDi LRI U+2066"),
+]
+for label, payload in (("znav list", list_b), ("znav explain", exp_b), ("znav jump stderr", err_b)):
+    for seq, desc in forbidden_raw:
+        assert seq not in payload, f"Unsanitized raw {desc} leaked in {label}!"
+
+# 2. Valid UTF-8 scripts (including 0x97/0x9c continuation bytes in 日本!) MUST render verbatim!
+for utf8_tok in ("日本", "東京", "한국", "Москва", "café", "🚀"):
+    tb = utf8_tok.encode("utf-8")
+    assert tb in list_b, f"Valid UTF-8 {utf8_tok!r} mangled in znav list!"
+assert "日本".encode("utf-8") in exp_b, "Valid UTF-8 '日本' mangled in znav explain!"
+assert "日本".encode("utf-8") in err_b, "Valid UTF-8 '日本' mangled in znav jump stderr!"
+
+# 3. Programmatic outputs (list --tsv, query, jump -p) MUST preserve exact raw canonical bytes!
+assert b"\t" + spoof_b + b"\n" in tsv_b, "znav list --tsv did not preserve exact raw canonical path!"
+assert prog_b == spoof_b + b"\n", "znav query / jump -p did not return exact raw canonical path!"
+print("BIDI_ANSI_SANITIZE_OK")
+PYEOF
+  )
+  assert_true $? "Suite 16c-4 Python byte-level BiDi/ANSI sanitization & UTF-8 preservation audit exited 0"
+  [[ $out_16c4 == *"SANITIZE_RUN_OK"* && $audit_16c4 == *"BIDI_ANSI_SANITIZE_OK"* ]] \
+    && pass "Security: Trojan Source BiDi (U+202E/U+2066) & ANSI/OSC escapes neutralized in human output while 日本 & programmatic TSV/query stay byte-exact" \
+    || fail "Suite 16c-4 audit output: $out_16c4 / $audit_16c4"
+
+  # 16c-5. Cross-Locale (`UTF-8` <-> `LC_ALL=C`) Lossless WAL & Snapshot Round-Trip
+  local sec5_home="$sb/sec5_home"
+  local sec5_data="$sb/sec5_data"
+  zf_mkdir -p "$sec5_home/日本" "$sec5_home/東京" "$sec5_home/🚀_launch" "$sec5_data"
+  local exp_sec5_home=${sec5_home:A}
+  local err_u1="$sb/sec5_err_u1.log" err_c2="$sb/sec5_err_c2.log" err_u3="$sb/sec5_err_u3.log"
+
+  # Step 1: Write visits to ~/日本 (3x), ~/東京 (2x), ~/🚀_launch (1x) under UTF-8 locale
+  HOME="$exp_sec5_home" ZNAV_DATA_DIR="$sec5_data" ZNAV_AUTO_SEED=0 LC_ALL="$utf8_loc" LANG="$utf8_loc" TERM=dumb \
+    /bin/zsh -dfi +Z +m -c '
+      PROMPT="" RPROMPT=""
+      source "$1" || exit 11
+      ZNAV_NOW=1700400000.0 cd "$HOME/日本" || exit 12
+      ZNAV_NOW=1700400010.0 cd "$HOME/東京" || exit 13
+      ZNAV_NOW=1700400020.0 cd "$HOME/日本" || exit 14
+      ZNAV_NOW=1700400030.0 cd "$HOME/🚀_launch" || exit 15
+      ZNAV_NOW=1700400040.0 cd "$HOME/東京" || exit 16
+      ZNAV_NOW=1700400050.0 cd "$HOME/日本" || exit 17
+    ' _ "$PLUGIN_FILE" 2>"$err_u1"
+  assert_true $? "Suite 16c-5 Step 1 (UTF-8 WAL write) exited 0"
+
+  # Also append a legacy UTF-8 `\u65e5\u672c` WAL line to verify graceful replay under LC_ALL=C!
+  print -r -- "V 1700400060.0 \$'${exp_sec5_home}/\\u65e5\\u672c'" >> "$sec5_data/wal.log"
+
+  # Step 2: Replay WAL + compact under strict `LC_ALL=C`!
+  HOME="$exp_sec5_home" ZNAV_DATA_DIR="$sec5_data" ZNAV_AUTO_SEED=0 LC_ALL=C LANG=C TERM=dumb \
+    /bin/zsh -dfi +Z +m -c '
+      PROMPT="" RPROMPT=""
+      source "$1" || exit 21
+      (( ${#_ZNAV_SCORE} == 3 )) || exit 22
+      (( ${+_ZNAV_SCORE[$HOME/日本]} && ${+_ZNAV_SCORE[$HOME/東京]} && ${+_ZNAV_SCORE[$HOME/🚀_launch]} )) || exit 23
+      znav compact || exit 24
+      (( ${#_ZNAV_SCORE} == 3 )) || exit 25
+    ' _ "$PLUGIN_FILE" 2>"$err_c2"
+  assert_true $? "Suite 16c-5 Step 2 (LC_ALL=C WAL replay + znav compact) exited 0"
+
+  # Step 3: Reload compacted db.tsv under UTF-8 locale and verify exact 4-visit LSE score on ~/日本 & 2-visit LSE score on ~/東京
+  local out_16c5
+  out_16c5=$(HOME="$exp_sec5_home" ZNAV_DATA_DIR="$sec5_data" ZNAV_AUTO_SEED=0 LC_ALL="$utf8_loc" LANG="$utf8_loc" TERM=dumb \
+    /bin/zsh -dfi +Z +m -c '
+      PROMPT="" RPROMPT=""
+      zmodload zsh/mathfunc
+      source "$1" || exit 31
+      (( ${#_ZNAV_SCORE} == 3 )) || { print -r -- "CROSS_LOC_KEYS:${#_ZNAV_SCORE}"; exit 32; }
+
+      float -E 17 tau=$(( 259200.0 / log(2.0) ))
+      # Fold exact 4 visits for ~/日本 (0, 20, 50, 60) and 2 visits for ~/東京 (10, 40)
+      float -E 17 exp_jp=1700400000.0 t
+      for t in 1700400020.0 1700400050.0 1700400060.0; do
+        (( exp_jp = t + tau * log(1.0 + exp(-(t - exp_jp) / tau)) ))
+      done
+      float -E 17 exp_tk=$(( 1700400040.0 + tau * log(1.0 + exp(-30.0 / tau)) ))
+      float -E 17 got_jp=${_ZNAV_SCORE[$HOME/日本]}
+      float -E 17 got_tk=${_ZNAV_SCORE[$HOME/東京]}
+      float -E 17 got_rk=${_ZNAV_SCORE[$HOME/🚀_launch]}
+      (( abs(got_jp - exp_jp) < 1e-8 && abs(got_tk - exp_tk) < 1e-8 && abs(got_rk - 1700400030.0) < 1e-8 )) || {
+        print -r -- "CROSS_LOC_DRIFT:$got_jp/$exp_jp|$got_tk/$exp_tk|$got_rk"
+        exit 33
+      }
+      j 日本 && [[ $PWD == "$HOME/日本" ]] || exit 34
+      j 東京 && [[ $PWD == "$HOME/東京" ]] || exit 35
+      print -r -- "CROSS_LOCALE_OK"
+    ' _ "$PLUGIN_FILE" 2>"$err_u3")
+  assert_true $? "Suite 16c-5 Step 3 (UTF-8 reload after LC_ALL=C compact) exited 0"
+  assert_eq "$(<"$err_u1")$(<"$err_c2")$(<"$err_u3")" "" "Zero stderr charset warnings across UTF-8 <-> LC_ALL=C WAL replay & compaction"
+  [[ $out_16c5 == *"CROSS_LOCALE_OK"* ]] \
+    && pass "Cross-locale (UTF-8 -> LC_ALL=C compact -> UTF-8 reload, including \\uHHHH WAL line) preserves exact keys & 0 lost visits" \
+    || fail "Suite 16c-5 output: $out_16c5"
 }
 
 # ==============================================================================
