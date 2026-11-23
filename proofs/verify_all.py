@@ -13,10 +13,12 @@ Executes and cross-checks all formal methods pillars:
              - Soundness rejection test against forged / `Sorry` certificates
   [Pillar 3] Z3 Combinatorial & Mechanism-Design Proofs (`verify_bijection_matroid.py`)
              - IEEE-754 binary64 analytical ULP error bound vs 80-digit Decimal oracle
+             - Prop 2.0-UTF8: Z3 QF_BV RFC-3629 UTF-8 Scalar Isomorphism & Strict Total Order
              - Theorem 2a: Pigeonhole Total Collision-Free Bijection & Reserved-Set Safety
              - Theorem 2b: No-Hijack Top-Rank Stability vs 100% `cdr` MRU Code Churn
              - Theorem 2c: Unique Lexicographic, Strict Pareto, HLP Expected-Length,
                and Online Sum-Minimization vs No-Hijack Impossibility Theorem
+             - Theorem 2d: Degenerate Unicode Fallback Collision-Freedom (`日本`, `東京`, `한국`, ...)
   [Pillar 4] Z3 & Analytical Information-Theory Proofs (`verify_info_theory.py`)
              - Z3 QF_NRA Gibbs/KL Divergence & Shannon Source Coding Lower Bound
              - Z3 String Theory Delimited Prefix-Free Code Theorem
@@ -132,8 +134,8 @@ def main() -> int:
     t0 = time.time()
     p2 = run_all_primitive2_proofs()
     print(
-        f"[PASS] Pillar 3 — Z3 Bijection, No-Hijack, Lexicographic/Pareto/HLP & Impossibility Proofs "
-        f"(ULP bound <= {p2['fp_rounding']['per_op_abs_bound_sec']:.2e}s) [{time.time() - t0:.2f}s]"
+        f"[PASS] Pillar 3 — Z3 UTF-8 Order, Bijection, Unicode Fallback ({p2['unicode_fallback']['checked_assignments']} checks), "
+        f"No-Hijack & Optimality (ULP <= {p2['fp_rounding']['per_op_abs_bound_sec']:.2e}s) [{time.time() - t0:.2f}s]"
     )
 
     # Pillar 4: Primitive 3 Information-Theoretic Bounds & Zipf Scaling

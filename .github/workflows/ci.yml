@@ -32,11 +32,19 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install Zsh and Z3 CLI (Ubuntu)
+      - name: Install Zsh, Z3 CLI & UTF-8 locales (Ubuntu)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y zsh z3
+          sudo apt-get install -y zsh z3 locales
+          sudo locale-gen en_US.UTF-8
+          sudo update-locale
+          locale -a | grep -Ei '^(C|en_US)\.(UTF-8|utf8)$'
+
+      - name: Verify UTF-8 locale availability (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          locale -a | grep -Fx 'en_US.UTF-8'
 
       - name: Install Python verification dependencies
         run: |
@@ -64,9 +72,72 @@ jobs:
       - name: Run machine-checked formal proofs (Z3 + LCF kernel)
         run: python3 -B proofs/verify_all.py
 
+      - name: Run adversarial formal proof audit
+        run: python3 -B tests/audit_proofs.py
+
       - name: Run XNU Mach kernel zero-fork proof (macOS)
         if: runner.os == 'macOS'
         run: python3 -B tests/verify_zero_fork.py
+
+      - name: Verify live plugin inside Unicode directory (/tmp/ci_unicode_日本_東京/zsh-znav)
+        run: |
+          UTF8_LOC="en_US.UTF-8"
+          if ! locale -a 2>/dev/null | grep -Fqx "en_US.UTF-8"; then
+            if locale -a 2>/dev/null | grep -Fqx "en_US.utf8"; then
+              UTF8_LOC="en_US.utf8"
+            elif locale -a 2>/dev/null | grep -Fqx "C.UTF-8"; then
+              UTF8_LOC="C.UTF-8"
+            else
+              UTF8_LOC="C.utf8"
+            fi
+          fi
+          cleanup_ci_unicode() {
+            rm -rf "/tmp/ci_unicode_日本_東京" "/tmp/ci_unicode_home"
+          }
+          trap cleanup_ci_unicode EXIT
+          cleanup_ci_unicode
+          mkdir -p "/tmp/ci_unicode_日本_東京/zsh-znav/functions" \
+                   "/tmp/ci_unicode_日本_東京/zsh-znav/data" \
+                   "/tmp/ci_unicode_home/日本/sub" \
+                   "/tmp/ci_unicode_home/東京/日本" \
+                   "/tmp/ci_unicode_home/한국" \
+                   "/tmp/ci_unicode_home/di" \
+                   "/tmp/ci_unicode_home/dir"
+          cp znav.plugin.zsh zsh-znav.plugin.zsh "/tmp/ci_unicode_日本_東京/zsh-znav/"
+          for fn in functions/*; do
+            case "$fn" in
+              *.zwc|*.zwc.old) continue ;;
+            esac
+            if [ -f "$fn" ]; then
+              cp "$fn" "/tmp/ci_unicode_日本_東京/zsh-znav/functions/"
+            fi
+          done
+          LC_ALL="$UTF8_LOC" LANG="$UTF8_LOC" \
+          HOME="/tmp/ci_unicode_home" \
+          ZNAV_DATA_DIR="/tmp/ci_unicode_日本_東京/zsh-znav/data" \
+          TERM=dumb \
+          zsh -dfi +Z +m -c '
+            PROMPT="" RPROMPT="" PS1="" PS2=""
+            setopt NO_PROMPT_SP warn_create_global
+            zmodload zsh/system zsh/parameter
+            source "/tmp/ci_unicode_日本_東京/zsh-znav/zsh-znav.plugin.zsh" || exit 11
+            PATH=""
+            integer orig_pid=${sysparams[pid]}
+            znav seed "$HOME/東京" || exit 12
+            repeat 2 { builtin cd -q /; cd "$HOME/日本" || exit 13; }
+            local c_jp=${_ZNAV_DIR2CODE[${HOME:A}/日本]}
+            [[ -n $c_jp && ${~:-~$c_jp} == "${HOME:A}/日本" && ~[$c_jp] == "${HOME:A}/日本" ]] || exit 14
+            [[ ~[日本] == "${HOME:A}/日本" ]] || exit 15
+            [[ ~[東京:日本] == "${HOME:A}/東京/日本" ]] || exit 16
+            j 東京 日本 && [[ $PWD == "${HOME:A}/東京/日本" ]] || exit 17
+            j "$c_jp" sub && [[ $PWD == "${HOME:A}/日本/sub" ]] || exit 18
+            znav list >/dev/null && znav explain "${HOME:A}/日本" >/dev/null && znav stats >/dev/null || exit 19
+            (( ${#_ZNAV_DIR2CODE} == ${#_ZNAV_CODE2DIR} && ${#_ZNAV_DIR2CODE} == ${#_ZNAV_SCORE} )) || exit 20
+            znav compact && znav compile || exit 21
+            (( ZSH_SUBSHELL == 0 && sysparams[pid] == orig_pid )) || exit 22
+          '
+          cleanup_ci_unicode
+          trap - EXIT
 
       - name: Ensure working tree stays clean
         run: test -z "$(git status --porcelain)"
