@@ -15,43 +15,43 @@
   },
   "chpwd_latency_us": {
     "50": {
-      "znav": 756.72,
-      "cdr": 980.28,
-      "fork_floor": 2407.06,
-      "zoxide": 5220.81
+      "znav": 736.53,
+      "cdr": 888.53,
+      "fork_floor": 2096.36,
+      "zoxide": 5000.53
     },
     "500": {
-      "znav": 730.66,
-      "cdr": 21369.0,
-      "fork_floor": 3042.91,
-      "zoxide": 6385.19
+      "znav": 588.82,
+      "cdr": 19571.34,
+      "fork_floor": 1738.82,
+      "zoxide": 3499.34
     },
     "2000": {
-      "znav": 1112.47,
-      "cdr": 238394.28,
-      "fork_floor": 1399.87,
-      "zoxide": 3379.04,
-      "speedup_vs_cdr": "214.3x",
-      "speedup_vs_zoxide": "3.0x",
+      "znav": 717.3,
+      "cdr": 218818.56,
+      "fork_floor": 1618.5,
+      "zoxide": 4500.64,
+      "speedup_vs_cdr": "305.1x",
+      "speedup_vs_zoxide": "6.3x",
       "cdr_vs_zoxide": "0.0x"
     }
   },
   "jump_latency_us": {
     "n_dirs": 500,
     "tilde_static": 0.25,
-    "tilde_dynamic": 33.19,
-    "cd_tilde": 489.95,
-    "jump_j": 589.77,
-    "cdr_dynamic": 3846.9,
-    "cdr_jump": 21575.01,
-    "ext_jump_floor": 1455.07,
-    "zoxide_jump": 6760.2,
+    "tilde_dynamic": 35.39,
+    "cd_tilde": 542.74,
+    "jump_j": 653.39,
+    "cdr_dynamic": 4282.1,
+    "cdr_jump": 23117.31,
+    "ext_jump_floor": 1617.21,
+    "zoxide_jump": 8754.15,
     "external_baseline": "zoxide",
     "speedups_vs_external": {
-      "tilde_static": "27040.8x",
-      "tilde_dynamic": "203.7x",
-      "cd_tilde": "13.8x",
-      "jump_j": "11.5x"
+      "tilde_static": "35016.6x",
+      "tilde_dynamic": "247.4x",
+      "cd_tilde": "16.1x",
+      "jump_j": "13.4x"
     }
   },
   "info_efficiency": {
