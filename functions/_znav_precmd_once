@@ -13,9 +13,12 @@ setopt extended_glob warn_create_global typeset_silent no_short_loops
 
 add-zsh-hook -d precmd _znav_precmd_once
 
+integer _po_avoid=1
+[[ -z ${ZNAV_AVOID_COMMANDS:-} || ${ZNAV_AVOID_COMMANDS:-} == [+-]#0## ]] && _po_avoid=0
+
 local _code
 for _code in "${(@k)_ZNAV_CODE2DIR}"; do
-  if (( ZNAV_AVOID_COMMANDS )) && (( $+aliases[$_code] || $+functions[$_code] || $+commands[$_code] || $+builtins[$_code] || ${reswords[(Ie)$_code]} )); then
+  if (( _po_avoid )) && (( $+aliases[$_code] || $+functions[$_code] || $+commands[$_code] || $+builtins[$_code] || ${reswords[(Ie)$_code]} )); then
     _znav_rebuild_projections
     break
   fi

@@ -12,8 +12,9 @@ _znav_complete_codes() {
 
   local -a _keys=() _disp=()
   local _d _code _pretty _esc _w_s _top_raw=${_ZNAV_SCORE[${_ZNAV_RANKED_DIRS[1]}]} _cur_raw
-  float -E 17 _hl=$ZNAV_HALF_LIFE _tau _lmax _w
-  (( _hl <= 0.0 )) && _hl=259200.0
+  float -E 17 _hl _tau _lmax _w
+  _znav_half_life
+  _hl=$REPLY
   (( _tau = _hl / log(2.0) ))
   (( _lmax = _top_raw ))
 
@@ -32,7 +33,8 @@ _znav_complete_codes() {
         _pretty="~/${_pretty#$HOME/}"
       fi
     fi
-    _pretty=${_pretty//$'\n'/\\n}
+    _znav_sanitize_display "$_pretty"
+    _pretty=$REPLY
     _esc=${_pretty//:/\\:}
     _keys+=("$_code")
     _disp+=("${_code}:${_esc} [rel=${_w_s}]")
@@ -66,7 +68,10 @@ _znav_complete_jump_args() {
     if [[ $PREFIX == */* ]]; then
       local _head=${PREFIX%%/*}
       if _znav_resolve 0 "$_head" && [[ -d $REPLY ]]; then
-        compset -P '[^/]##/'
+        {
+          setopt localoptions no_multibyte
+          compset -P '[^/]##/'
+        }
         _path_files -W "$REPLY" -/
         return
       fi
