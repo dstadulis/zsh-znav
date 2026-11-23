@@ -16,7 +16,9 @@ if [[ $_mode == n ]]; then
   [[ -z $_expr ]] && return 1
 
   # O(1) fast path for exact top-projected shortcode without colon
-  if [[ $_expr != *:* ]] && (( _ZNAV_CACHE_VALID && _ZNAV_LAST_SCORE_COUNT == ${#_ZNAV_SCORE} && _ZNAV_LAST_AVOID_CMDS == (ZNAV_AVOID_COMMANDS ? 1 : 0) )); then
+  integer _dn_avoid=1
+  [[ -z ${ZNAV_AVOID_COMMANDS:-} || ${ZNAV_AVOID_COMMANDS:-} == [+-]#0## ]] && _dn_avoid=0
+  if [[ $_expr != *:* ]] && (( _ZNAV_CACHE_VALID && _ZNAV_LAST_SCORE_COUNT == ${#_ZNAV_SCORE} && _ZNAV_LAST_AVOID_CMDS == _dn_avoid )); then
     local _expr_l=${(L)_expr} _fast=""
     if [[ -n ${_ZNAV_CODE2DIR[$_expr]+x} ]]; then
       _fast=${_ZNAV_CODE2DIR[$_expr]}
@@ -62,6 +64,7 @@ elif [[ $_mode == d ]]; then
     if [[ $_path == $_d || $_path == $_d/* ]]; then
       {
         setopt localoptions no_multibyte
+        local LC_ALL=C
         _cur_blen=${#_d}
       }
       if (( _cur_blen > _best_blen )); then
@@ -79,7 +82,23 @@ elif [[ $_mode == d ]]; then
     return 1
   fi
 
-  typeset -ga reply=("$_best_code" $_best_blen)
+  # Zsh C `finddir()` (Src/utils.c) indexes `s + reply[2]` on Zsh's internal
+  # metafied `char *`, where NUL (0x00) and token bytes (0x83..0xA2) occupy 2 bytes.
+  integer _meta_len=$_best_blen _mi _mb
+  local _mc
+  {
+    setopt localoptions no_multibyte
+    local LC_ALL=C
+    for (( _mi = 1; _mi <= _best_blen; _mi++ )); do
+      _mc=${_best_d[_mi]}
+      _mb=$(( #_mc & 255 ))
+      if (( _mb == 0 || (_mb >= 0x83 && _mb <= 0xA2) )); then
+        (( _meta_len++ ))
+      fi
+    done
+  }
+
+  typeset -ga reply=("$_best_code" $_meta_len)
   return 0
 
 elif [[ $_mode == c ]]; then
@@ -89,8 +108,9 @@ elif [[ $_mode == c ]]; then
 
   local -a _keys=() _disp=()
   local _d _code _pretty _esc_pretty _w_str _top_raw=${_ZNAV_SCORE[${_ZNAV_RANKED_DIRS[1]}]} _cur_raw
-  float -E 17 _hl=$ZNAV_HALF_LIFE _tau _lmax _w
-  (( _hl <= 0.0 )) && _hl=259200.0
+  float -E 17 _hl _tau _lmax _w
+  _znav_half_life
+  _hl=$REPLY
   (( _tau = _hl / log(2.0) ))
   (( _lmax = _top_raw ))
 
@@ -109,7 +129,8 @@ elif [[ $_mode == c ]]; then
         _pretty="~/${_pretty#$HOME/}"
       fi
     fi
-    _pretty=${_pretty//$'\n'/\\n}
+    _znav_sanitize_display "$_pretty"
+    _pretty=$REPLY
     _esc_pretty=${_pretty//:/\\:}
     _keys+=("$_code")
     _disp+=("${_code}:${_esc_pretty} [rel=${_w_str}]")

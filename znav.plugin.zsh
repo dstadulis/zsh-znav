@@ -20,8 +20,10 @@
   zmodload -i zsh/system 2>/dev/null || true
   zmodload -F zsh/files b:zf_mv b:zf_mkdir b:zf_rm b:zf_rmdir
 
-  # Resolve plugin root and prepend functions/ to $fpath without forks.
-  typeset -g ZNAV_PLUGIN_DIR=${1:A:h}
+  # Resolve plugin root and prepend functions/ to $fpath without forks or (%) nicechar mangling.
+  local _plugin_src=${funcfiletrace[1]%:*}
+  [[ -z $_plugin_src || ! -e $_plugin_src ]] && _plugin_src=$1
+  typeset -g ZNAV_PLUGIN_DIR=${_plugin_src:A:h}
   if (( ! ${fpath[(Ie)$ZNAV_PLUGIN_DIR/functions]} )); then
     fpath=("$ZNAV_PLUGIN_DIR/functions" $fpath)
   fi
@@ -60,24 +62,161 @@
   typeset -gi _ZNAV_LAST_AVOID_CMDS=-1
   typeset -gi _ZNAV_LAST_MAX_NAMEDDIRS=-1
   typeset -gi _ZNAV_P10K_AUTO_INJECTED=0
-} "${(%):-%x}"
+} "$0"
 
 # ---------------------------------------------------------------------------
-# Core Zero-Fork Utilities
+# Core Zero-Fork Utilities & Security Sanitizers
 # ---------------------------------------------------------------------------
 
 _znav_now() {
   emulate -L zsh
   setopt extended_glob warn_create_global typeset_silent no_short_loops
   float -E 17 _t
-  if [[ -n ${ZNAV_NOW:-} ]]; then
-    (( _t = ZNAV_NOW ))
-  elif [[ -n ${_ZNAV_NOW:-} ]]; then
-    (( _t = _ZNAV_NOW ))
+  local _zn=${ZNAV_NOW:-} _uzn=${_ZNAV_NOW:-}
+  if [[ -n $_zn && $_zn == [+-]#(<->|<->.<->|<->.|.<->)([eE][+-]#<->|) ]]; then
+    (( _t = _zn ))
+  elif [[ -n $_uzn && $_uzn == [+-]#(<->|<->.<->|<->.|.<->)([eE][+-]#<->|) ]]; then
+    (( _t = _uzn ))
   else
     (( _t = EPOCHREALTIME ))
   fi
   REPLY=$_t
+}
+
+_znav_half_life() {
+  emulate -L zsh
+  setopt extended_glob warn_create_global typeset_silent no_short_loops
+  local _raw_hl=${ZNAV_HALF_LIFE:-}
+  float -E 17 _hl=259200.0
+  if [[ -n $_raw_hl && $_raw_hl == [+-]#(<->|<->.<->|<->.|.<->)([eE][+-]#<->|) ]]; then
+    (( _hl = _raw_hl ))
+    (( _hl > 0.0 && _hl < 1.7e308 )) || _hl=259200.0
+  fi
+  REPLY=$_hl
+}
+
+_znav_sanitize_display() {
+  # Escapes ASCII C0/DEL, UTF-8 C1 controls (\xc2[\x80-\x9f] incl. CSI \xc2\x9b),
+  # and Trojan Source BiDi codepoints (U+202A..U+202E, U+2066..U+2069, U+061C)
+  # for human-facing terminal strings while preserving valid UTF-8 (e.g. 日本) intact.
+  emulate -L zsh
+  setopt extended_glob warn_create_global typeset_silent no_short_loops no_multibyte
+  local LC_ALL=C
+  local _s=$1
+  if [[ $_s != *[$'\x00'-$'\x1f'$'\x7f'$'\xc2'$'\xd8'$'\xe2']* ]]; then
+    REPLY=$_s
+    return 0
+  fi
+  local _out="" _c1 _c2 _c3 _hex
+  integer _i=1 _n=${#_s} _b1 _b2 _b3
+  while (( _i <= _n )); do
+    _c1=${_s[_i]}
+    _b1=$(( #_c1 & 255 ))
+    if (( _b1 < 0x20 || _b1 == 0x7F )); then
+      case $_b1 in
+        (9)  _out+='\t' ;;
+        (10) _out+='\n' ;;
+        (13) _out+='\r' ;;
+        (*)  builtin printf -v _hex '\\x%02x' $_b1; _out+=$_hex ;;
+      esac
+      (( _i++ ))
+    elif (( _b1 == 0xC2 && _i + 1 <= _n )); then
+      _c2=${_s[_i+1]}
+      _b2=$(( #_c2 & 255 ))
+      if (( _b2 >= 0x80 && _b2 <= 0x9F )); then
+        builtin printf -v _hex '\\u00%02x' $_b2
+        _out+=$_hex
+        (( _i += 2 ))
+      else
+        _out+=$_c1
+        (( _i++ ))
+      fi
+    elif (( _b1 == 0xD8 && _i + 1 <= _n )); then
+      _c2=${_s[_i+1]}
+      _b2=$(( #_c2 & 255 ))
+      if (( _b2 == 0x9C )); then
+        _out+='\u061c'
+        (( _i += 2 ))
+      else
+        _out+=$_c1
+        (( _i++ ))
+      fi
+    elif (( _b1 == 0xE2 && _i + 2 <= _n )); then
+      _c2=${_s[_i+1]}
+      _c3=${_s[_i+2]}
+      _b2=$(( #_c2 & 255 ))
+      _b3=$(( #_c3 & 255 ))
+      if (( _b2 == 0x80 && _b3 >= 0xAA && _b3 <= 0xAE )); then
+        builtin printf -v _hex '\\u20%02x' $(( 0x2A + (_b3 - 0xAA) ))
+        _out+=$_hex
+        (( _i += 3 ))
+      elif (( _b2 == 0x81 && _b3 >= 0xA6 && _b3 <= 0xA9 )); then
+        builtin printf -v _hex '\\u20%02x' $(( 0x66 + (_b3 - 0xA6) ))
+        _out+=$_hex
+        (( _i += 3 ))
+      else
+        _out+=$_c1
+        (( _i++ ))
+      fi
+    else
+      _out+=$_c1
+      (( _i++ ))
+    fi
+  done
+  REPLY=$_out
+}
+
+_znav_unquote_path() {
+  # Cross-locale lossless unquoting under LC_ALL=C + no_multibyte.
+  # Converts any $'...\uHHHH...' / $'...\UHHHHHHHH...' escapes into UTF-8 octal
+  # escapes prior to ${(Q)} so C-locale shells never fail charset conversion.
+  emulate -L zsh
+  setopt extended_glob warn_create_global typeset_silent no_short_loops no_multibyte
+  local LC_ALL=C
+  local _q=$1
+  if [[ $_q == "\$'"*"'" && $_q == *\\[uU]* ]]; then
+    local _body=${_q[3,-2]} _out="" _ch _nx _hex _esc
+    integer _i=1 _n=${#_body} _cp _k _maxd
+    while (( _i <= _n )); do
+      _ch=${_body[_i]}
+      if [[ $_ch == '\' ]] && (( _i < _n )); then
+        _nx=${_body[_i+1]}
+        if [[ $_nx == (u|U) ]]; then
+          [[ $_nx == u ]] && _maxd=4 || _maxd=8
+          _hex=""
+          (( _k = _i + 2 ))
+          while (( _k <= _n && ${#_hex} < _maxd )) && [[ ${_body[_k]} == [0-9A-Fa-f] ]]; do
+            _hex+=${_body[_k]}
+            (( _k++ ))
+          done
+          if (( ${#_hex} > 0 )); then
+            (( _cp = 16#$_hex ))
+            if (( _cp <= 0x7F )); then
+              builtin printf -v _esc '\\%03o' $_cp
+            elif (( _cp <= 0x7FF )); then
+              builtin printf -v _esc '\\%03o\\%03o' $(( 0xC0 | (_cp >> 6) )) $(( 0x80 | (_cp & 0x3F) ))
+            elif (( _cp <= 0xFFFF )); then
+              builtin printf -v _esc '\\%03o\\%03o\\%03o' $(( 0xE0 | (_cp >> 12) )) $(( 0x80 | ((_cp >> 6) & 0x3F) )) $(( 0x80 | (_cp & 0x3F) ))
+            elif (( _cp <= 0x10FFFF )); then
+              builtin printf -v _esc '\\%03o\\%03o\\%03o\\%03o' $(( 0xF0 | (_cp >> 18) )) $(( 0x80 | ((_cp >> 12) & 0x3F) )) $(( 0x80 | ((_cp >> 6) & 0x3F) )) $(( 0x80 | (_cp & 0x3F) ))
+            else
+              _esc="\\${_nx}${_hex}"
+            fi
+            _out+=$_esc
+            _i=$_k
+            continue
+          fi
+        fi
+        _out+="${_ch}${_nx}"
+        (( _i += 2 ))
+        continue
+      fi
+      _out+=$_ch
+      (( _i++ ))
+    done
+    _q="\$'${_out}'"
+  fi
+  REPLY=${(Q)_q}
 }
 
 _znav_canon_path() {
@@ -152,10 +291,13 @@ _znav_lse_fold_tmp() {
     _ZNAV_TMP_MAP[$_d]=$_x
     return 0
   fi
-  local _raw_cur=${_ZNAV_TMP_MAP[$_d]}
-  float -E 17 _cur _hl=$ZNAV_HALF_LIFE _tau _mx _diff _next
+  local _raw_cur=${_ZNAV_TMP_MAP[$_d]} _raw_hl=${ZNAV_HALF_LIFE:-}
+  float -E 17 _cur _hl=259200.0 _tau _mx _diff _next
   (( _cur = _raw_cur ))
-  (( _hl <= 0.0 )) && _hl=259200.0
+  if [[ -n $_raw_hl && $_raw_hl == [+-]#(<->|<->.<->|<->.|.<->)([eE][+-]#<->|) ]]; then
+    (( _hl = _raw_hl ))
+    (( _hl > 0.0 && _hl < 1.7e308 )) || _hl=259200.0
+  fi
   (( _tau = _hl / log(2.0) ))
   (( _mx = _cur >= _x ? _cur : _x ))
   (( _diff = _cur >= _x ? _cur - _x : _x - _cur ))
@@ -177,10 +319,13 @@ _znav_lse_fold_score() {
     _ZNAV_LAST_SCORE_COUNT=${#_ZNAV_SCORE}
     return 0
   fi
-  local _raw_cur=${_ZNAV_SCORE[$_d]}
-  float -E 17 _cur _hl=$ZNAV_HALF_LIFE _tau _mx _diff _next
+  local _raw_cur=${_ZNAV_SCORE[$_d]} _raw_hl=${ZNAV_HALF_LIFE:-}
+  float -E 17 _cur _hl=259200.0 _tau _mx _diff _next
   (( _cur = _raw_cur ))
-  (( _hl <= 0.0 )) && _hl=259200.0
+  if [[ -n $_raw_hl && $_raw_hl == [+-]#(<->|<->.<->|<->.|.<->)([eE][+-]#<->|) ]]; then
+    (( _hl = _raw_hl ))
+    (( _hl > 0.0 && _hl < 1.7e308 )) || _hl=259200.0
+  fi
   (( _tau = _hl / log(2.0) ))
   (( _mx = _cur >= _x ? _cur : _x ))
   (( _diff = _cur >= _x ? _cur - _x : _x - _cur ))
@@ -223,7 +368,16 @@ _znav_gt() {
   if (( _lena != _lenb )); then
     (( _lena < _lenb )) && return 0 || return 1
   fi
-  [[ $_a < $_b ]]
+  # Compare exact unsigned UTF-8 byte values (avoids Zsh metafied 0x83..0xA2 strcmp inversion).
+  integer _i
+  local _ca _cb
+  for (( _i = 1; _i <= _lena; _i++ )); do
+    _ca=${_a[_i]}
+    _cb=${_b[_i]}
+    [[ $_ca == $_cb ]] && continue
+    (( (#_ca & 255) < (#_cb & 255) )) && return 0 || return 1
+  done
+  return 1
 }
 
 _znav_sort_dirs() {
@@ -293,7 +447,7 @@ _znav_sort_dirs() {
 _znav_tokenize() {
   # Sets global array `reply` to non-empty lowercase alphanumeric tokens of $1.
   emulate -L zsh
-  setopt extended_glob warn_create_global typeset_silent no_short_loops
+  setopt extended_glob warn_create_global typeset_silent no_short_loops no_multibyte
   local LC_ALL=C
   local _s=$1
   local -a match mbegin mend
@@ -306,7 +460,7 @@ _znav_tokenize() {
 _znav_candidates_finite() {
   # Sets `reply` to Tiers 1..4 of K($1), memoized in _ZNAV_CAND_CACHE[$1].
   emulate -L zsh
-  setopt extended_glob warn_create_global typeset_silent no_short_loops
+  setopt extended_glob warn_create_global typeset_silent no_short_loops no_multibyte
   local LC_ALL=C
   local _d=$1
   if [[ -n ${_ZNAV_CAND_CACHE[$_d]+x} ]]; then
@@ -439,7 +593,7 @@ _znav_candidates_finite() {
 _znav_tier5_stem() {
   # Sets REPLY to the Tier 5 collision-free stem for canonical directory $1.
   emulate -L zsh
-  setopt extended_glob warn_create_global typeset_silent no_short_loops
+  setopt extended_glob warn_create_global typeset_silent no_short_loops no_multibyte
   local LC_ALL=C
   local _d=$1
   local -a _T=() _P=()
@@ -478,12 +632,14 @@ _znav_tier5_stem() {
 _znav_is_reserved() {
   # Returns 0 (true) if identifier $1 is in reserved set R, 1 (false) otherwise.
   emulate -L zsh
-  setopt extended_glob warn_create_global typeset_silent no_short_loops no_nomatch
+  setopt extended_glob warn_create_global typeset_silent no_short_loops no_nomatch no_multibyte
+  local LC_ALL=C
   local _k=$1
-  [[ -z $_k || $_k == znav || $_k == j ]] && return 0
+  [[ $_k == [a-z_][a-z0-9_]## ]] || return 0
+  [[ $_k == znav || $_k == j ]] && return 0
   [[ -n ${ZNAV_CMD:-} && ${ZNAV_CMD} != none && $_k == $ZNAV_CMD ]] && return 0
 
-  if (( ZNAV_AVOID_COMMANDS )); then
+  if [[ -n ${ZNAV_AVOID_COMMANDS:-} && ${ZNAV_AVOID_COMMANDS} != [+-]#0## ]]; then
     if (( $+commands[$_k] || $+builtins[$_k] || $+functions[$_k] || $+aliases[$_k] || ${reswords[(Ie)$_k]} )); then
       return 0
     fi
@@ -558,7 +714,13 @@ _znav_apply_nameddirs_top() {
   # Projects _ZNAV_TOP_DIRS -> _ZNAV_DIR2CODE into Zsh C nameddirs hash table safely.
   emulate -L zsh
   setopt extended_glob warn_create_global typeset_silent no_short_loops
-  integer _max=$(( ZNAV_MAX_NAMEDDIRS > 0 ? ZNAV_MAX_NAMEDDIRS : 0 ))
+  local _raw_max=${ZNAV_MAX_NAMEDDIRS:-}
+  integer _max=256
+  if [[ -z $_raw_max ]]; then
+    _max=0
+  elif [[ $_raw_max == [+-]#<-> ]]; then
+    (( _max = _raw_max > 0 ? _raw_max : 0 ))
+  fi
   local -A _desired=()
   local _d _code
   integer _i _lim=$(( ${#_ZNAV_TOP_DIRS} < _max ? ${#_ZNAV_TOP_DIRS} : _max ))
@@ -600,8 +762,14 @@ _znav_rebuild_projections() {
   _ZNAV_TOP_POS=()
 
   typeset -gA _ZNAV_USED_CODES=()
-  local _d _code
-  integer _idx=0 _max=$(( ZNAV_MAX_NAMEDDIRS > 0 ? ZNAV_MAX_NAMEDDIRS : 0 ))
+  local _d _code _raw_max=${ZNAV_MAX_NAMEDDIRS:-}
+  integer _idx=0 _max=256 _avoid=1
+  [[ -z ${ZNAV_AVOID_COMMANDS:-} || ${ZNAV_AVOID_COMMANDS:-} == [+-]#0## ]] && _avoid=0
+  if [[ -z $_raw_max ]]; then
+    _max=0
+  elif [[ $_raw_max == [+-]#<-> ]]; then
+    (( _max = _raw_max > 0 ? _raw_max : 0 ))
+  fi
 
   for _d in "${_ZNAV_RANKED_DIRS[@]}"; do
     (( _idx++ ))
@@ -621,7 +789,7 @@ _znav_rebuild_projections() {
   _ZNAV_CACHE_VALID=1
   _ZNAV_ALL_DIRTY=0
   _ZNAV_LAST_SCORE_COUNT=${#_ZNAV_SCORE}
-  _ZNAV_LAST_AVOID_CMDS=$(( ZNAV_AVOID_COMMANDS ? 1 : 0 ))
+  _ZNAV_LAST_AVOID_CMDS=$_avoid
   _ZNAV_LAST_MAX_NAMEDDIRS=$_max
   _znav_update_pwd_code
 }
@@ -631,10 +799,16 @@ _znav_sync_visit() {
   # Relies on Time-Translation Order Invariance + No-Hijack Prefix Stability!
   emulate -L zsh
   setopt extended_glob warn_create_global typeset_silent no_short_loops
-  local _d=$1
-  integer _max=$(( ZNAV_MAX_NAMEDDIRS > 0 ? ZNAV_MAX_NAMEDDIRS : 0 ))
+  local _d=$1 _raw_max=${ZNAV_MAX_NAMEDDIRS:-}
+  integer _max=256 _avoid=1
+  [[ -z ${ZNAV_AVOID_COMMANDS:-} || ${ZNAV_AVOID_COMMANDS:-} == [+-]#0## ]] && _avoid=0
+  if [[ -z $_raw_max ]]; then
+    _max=0
+  elif [[ $_raw_max == [+-]#<-> ]]; then
+    (( _max = _raw_max > 0 ? _raw_max : 0 ))
+  fi
 
-  if (( !_ZNAV_CACHE_VALID || _ZNAV_LAST_AVOID_CMDS != (ZNAV_AVOID_COMMANDS ? 1 : 0) || _ZNAV_LAST_MAX_NAMEDDIRS != _max )); then
+  if (( !_ZNAV_CACHE_VALID || _ZNAV_LAST_AVOID_CMDS != _avoid || _ZNAV_LAST_MAX_NAMEDDIRS != _max )); then
     _znav_rebuild_projections
     return 0
   fi
@@ -712,8 +886,12 @@ _znav_sync_visit() {
     if [[ -n $_ev_code && ${_ZNAV_CODE2DIR[$_ev_code]:-} == $_evicted ]]; then
       unset "_ZNAV_CODE2DIR[$_ev_code]"
     fi
-    _ZNAV_DIR2CODE=("${(@kv)_ZNAV_DIR2CODE[(I)^${(b)_evicted}]}")
-    _ZNAV_TOP_POS=("${(@kv)_ZNAV_TOP_POS[(I)^${(b)_evicted}]}")
+    {
+      setopt localoptions no_multibyte
+      local LC_ALL=C
+      _ZNAV_DIR2CODE=("${(@kv)_ZNAV_DIR2CODE[(I)^${(b)_evicted}]}")
+      _ZNAV_TOP_POS=("${(@kv)_ZNAV_TOP_POS[(I)^${(b)_evicted}]}")
+    }
     _ZNAV_TOP_DIRS=("${_ZNAV_TOP_DIRS[1,_max]}")
     _ZNAV_ALL_DIRTY=1
   fi
@@ -772,8 +950,15 @@ _znav_sync_visit() {
 _znav_ensure_full_bijection() {
   emulate -L zsh
   setopt extended_glob warn_create_global typeset_silent no_short_loops
-  integer _max=$(( ZNAV_MAX_NAMEDDIRS > 0 ? ZNAV_MAX_NAMEDDIRS : 0 ))
-  if (( !_ZNAV_CACHE_VALID || _ZNAV_ALL_DIRTY || _ZNAV_LAST_SCORE_COUNT != ${#_ZNAV_SCORE} || _ZNAV_LAST_AVOID_CMDS != (ZNAV_AVOID_COMMANDS ? 1 : 0) || _ZNAV_LAST_MAX_NAMEDDIRS != _max )); then
+  local _raw_max=${ZNAV_MAX_NAMEDDIRS:-}
+  integer _max=256 _avoid=1
+  [[ -z ${ZNAV_AVOID_COMMANDS:-} || ${ZNAV_AVOID_COMMANDS:-} == [+-]#0## ]] && _avoid=0
+  if [[ -z $_raw_max ]]; then
+    _max=0
+  elif [[ $_raw_max == [+-]#<-> ]]; then
+    (( _max = _raw_max > 0 ? _raw_max : 0 ))
+  fi
+  if (( !_ZNAV_CACHE_VALID || _ZNAV_ALL_DIRTY || _ZNAV_LAST_SCORE_COUNT != ${#_ZNAV_SCORE} || _ZNAV_LAST_AVOID_CMDS != _avoid || _ZNAV_LAST_MAX_NAMEDDIRS != _max )); then
     _znav_rebuild_projections
   fi
 }
@@ -783,9 +968,10 @@ _znav_ensure_full_bijection() {
 # ---------------------------------------------------------------------------
 
 _znav_wal_append() {
-  # Usage: _znav_wal_append <kind:V|I|D> <ts_float> <canon_dir>
+  # Usage: _znav_wal_append <kind:V|I|D|S> <ts_float> <canon_dir>
   emulate -L zsh
-  setopt extended_glob warn_create_global typeset_silent no_short_loops
+  setopt extended_glob warn_create_global typeset_silent no_short_loops no_multibyte
+  local LC_ALL=C
   local _kind=$1 _d=$3
   float -E 17 _ts=$2
   _znav_ensure_data_dir
@@ -805,7 +991,8 @@ _znav_replay_into_tmp() {
   # Replays a db.tsv or wal.log file ($1) directly into _ZNAV_TMP_MAP (safe for all path chars).
   # Sets REPLY to processed line count.
   emulate -L zsh
-  setopt extended_glob warn_create_global typeset_silent no_short_loops
+  setopt extended_glob warn_create_global typeset_silent no_short_loops no_multibyte
+  local LC_ALL=C
   local _file=$1
   [[ -r $_file ]] || { REPLY=0; return 0; }
 
@@ -816,21 +1003,28 @@ _znav_replay_into_tmp() {
     [[ -z $_kind || $_kind == \#* ]] && continue
     (( _lines++ ))
     [[ -z $_qpath ]] && continue
-    _d=${(Q)_qpath}
+    _znav_unquote_path "$_qpath"
+    _d=$REPLY
     [[ -z $_d ]] && continue
     case $_kind in
       (S)
+        [[ $_ts_s == [+-]#(<->|<->.<->|<->.|.<->)([eE][+-]#<->|) ]] || continue
         (( _val = _ts_s ))
+        (( _val > -1.7e308 && _val < 1.7e308 )) || continue
         _ZNAV_TMP_MAP[$_d]=$_val
         ;;
       (I)
+        [[ $_ts_s == [+-]#(<->|<->.<->|<->.|.<->)([eE][+-]#<->|) ]] || continue
         if [[ -z ${_ZNAV_TMP_MAP[$_d]+x} ]]; then
           (( _val = _ts_s ))
+          (( _val > -1.7e308 && _val < 1.7e308 )) || continue
           _ZNAV_TMP_MAP[$_d]=$_val
         fi
         ;;
       (V)
+        [[ $_ts_s == [+-]#(<->|<->.<->|<->.|.<->)([eE][+-]#<->|) ]] || continue
         (( _val = _ts_s ))
+        (( _val > -1.7e308 && _val < 1.7e308 )) || continue
         _znav_lse_fold_tmp "$_d" "$_val"
         ;;
       (D)
@@ -870,8 +1064,10 @@ _znav_compact_impl() {
   # Atomic multi-shell-safe compaction using kernel mkdir lock + zf_mv rename.
   # Optional $1=1 means opportunistic background call (skip quietly if locked).
   emulate -L zsh
-  setopt extended_glob warn_create_global typeset_silent no_short_loops
-  integer _opportunistic=${1:-0}
+  setopt extended_glob warn_create_global typeset_silent no_short_loops no_multibyte
+  local LC_ALL=C
+  integer _opportunistic=0
+  [[ ${1:-0} == <-> ]] && _opportunistic=$(( 10#${1:-0} ))
   _znav_ensure_data_dir
 
   local _lock="$ZNAV_DATA_DIR/compact.lock"
@@ -986,13 +1182,13 @@ _znav_prune_missing() {
 _znav_ordered_substrings() {
   # Returns 0 iff lowercased tokens $2..$# appear in order (non-overlapping) in $1.
   emulate -L zsh
-  setopt extended_glob warn_create_global typeset_silent no_short_loops
+  setopt extended_glob warn_create_global typeset_silent no_short_loops no_multibyte
   local _rem=$1
   shift
   local _tok
   for _tok in "$@"; do
-    [[ $_rem == *${(b)_tok}* ]] || return 1
-    _rem=${_rem#*${(b)_tok}}
+    [[ $_rem == *"$_tok"* ]] || return 1
+    _rem=${_rem#*"$_tok"}
   done
   return 0
 }
@@ -1001,7 +1197,6 @@ _znav_matches_primary() {
   # Usage: _znav_matches_primary <canon_dir> <q_low_1> ... <q_low_r>
   emulate -L zsh
   setopt extended_glob warn_create_global typeset_silent no_short_loops
-  local LC_ALL=C
   local _d=$1
   shift
   (( $# == 0 )) && return 1
@@ -1018,7 +1213,10 @@ _znav_matches_primary() {
   local _base_low=""
   [[ $_d != / ]] && _base_low=${(L)${_d:t}}
   local _last=${argv[-1]}
-  [[ $_base_low == *${(b)_last}* ]] || return 1
+  {
+    setopt localoptions no_multibyte
+    [[ $_base_low == *"$_last"* ]] || return 1
+  }
   _znav_ordered_substrings "$_d_low" "$@"
 }
 
@@ -1028,8 +1226,8 @@ _znav_resolve() {
   # Sets REPLY to winning canonical path and returns 0, or returns 1 if none.
   emulate -L zsh
   setopt extended_glob warn_create_global typeset_silent no_short_loops
-  local LC_ALL=C
-  integer _colon=${1:-0}
+  integer _colon=0
+  [[ ${1:-0} == <-> ]] && _colon=$(( 10#${1:-0} ))
   shift
 
   local -a _q_raw=() _q_low=()
@@ -1044,7 +1242,9 @@ _znav_resolve() {
 
   # O(1) Top-M Shortcode Fast Path: By No-Hijack Prefix Stability, top-M shortcodes
   # in _ZNAV_CODE2DIR are 100% exact even when tail ranks > M have _ZNAV_ALL_DIRTY=1!
-  if (( !_colon && ${#_q_raw} == 1 && _ZNAV_CACHE_VALID && _ZNAV_LAST_SCORE_COUNT == ${#_ZNAV_SCORE} && _ZNAV_LAST_AVOID_CMDS == (ZNAV_AVOID_COMMANDS ? 1 : 0) )); then
+  integer _avoid=1
+  [[ -z ${ZNAV_AVOID_COMMANDS:-} || ${ZNAV_AVOID_COMMANDS:-} == [+-]#0## ]] && _avoid=0
+  if (( !_colon && ${#_q_raw} == 1 && _ZNAV_CACHE_VALID && _ZNAV_LAST_SCORE_COUNT == ${#_ZNAV_SCORE} && _ZNAV_LAST_AVOID_CMDS == _avoid )); then
     local _fq0=${_q_raw[1]} _fq0l=${_q_low[1]} _fhit=""
     if [[ -n ${_ZNAV_CODE2DIR[$_fq0]+x} ]]; then
       _fhit=${_ZNAV_CODE2DIR[$_fq0]}
@@ -1127,8 +1327,9 @@ _znav_seed_roots() {
   (( ${#_roots} == 0 )) && [[ -n ${HOME:-} ]] && _roots=("$HOME")
 
   _znav_now
-  float -E 17 _t0=$REPLY _hl=$ZNAV_HALF_LIFE _init_score
-  (( _hl <= 0.0 )) && _hl=259200.0
+  float -E 17 _t0=$REPLY _hl _init_score
+  _znav_half_life
+  _hl=$REPLY
   (( _init_score = _t0 - _hl ))
 
   integer _added=0
@@ -1194,7 +1395,7 @@ _znav_p10k_unstash_nameddirs() {
 }
 
 prompt_znav() {
-  if (( ! ${_znav_in_instant:-0} )); then
+  if [[ -z ${_znav_in_instant:-} || ${_znav_in_instant} == 0 ]]; then
     case ${ZNAV_P10K_PROMPT:-both} in
       path|off) return 0 ;;
     esac
@@ -1298,7 +1499,7 @@ _znav_p10k_reconcile() {
           fi
         fi
       fi
-    elif (( $+functions[p10k] )) && [[ -n "${parameters[(I)POWERLEVEL9K_*~POWERLEVEL9K_(MODE|CONFIG_FILE|GITSTATUS_DIR)]}" || ${__p9k_configured:-0} -ne 0 ]]; then
+    elif (( $+functions[p10k] )) && [[ -n "${parameters[(I)POWERLEVEL9K_*~POWERLEVEL9K_(MODE|CONFIG_FILE|GITSTATUS_DIR)]}" || ( -n ${__p9k_configured:-} && ${__p9k_configured} != [+-]#0## ) ]]; then
       typeset -ga POWERLEVEL9K_LEFT_PROMPT_ELEMENTS=(context dir znav vcs)
       _ZNAV_P10K_AUTO_INJECTED=1
       _changed=1
@@ -1393,7 +1594,7 @@ _znav_p10k_setup() {
 
   # Load persisted state and cold-start bootstrap if empty
   _znav_load_db
-  if (( ${#_ZNAV_SCORE} == 0 && ZNAV_AUTO_SEED )) && [[ -n ${HOME:-} && -d $HOME ]]; then
+  if (( ${#_ZNAV_SCORE} == 0 )) && [[ -n ${ZNAV_AUTO_SEED:-} && ${ZNAV_AUTO_SEED} != [+-]#0## && -n ${HOME:-} && -d $HOME ]]; then
     _znav_seed_roots "$HOME"
   else
     _znav_rebuild_projections
@@ -1405,6 +1606,7 @@ _znav_p10k_setup() {
 
 # Persist CDABLE_VARS in caller scope when ZNAV_CDABLE_VARS=1 (default) so bare
 # shortcodes (e.g. `cr`, `sr`) jump directly alongside AUTO_CD.
-if (( ZNAV_CDABLE_VARS )); then
+# Note: top-level caller scope may not have extended_glob enabled, so avoid `#` globs here.
+if [[ -n ${ZNAV_CDABLE_VARS:-} && ${ZNAV_CDABLE_VARS} != 0 && ${ZNAV_CDABLE_VARS} != +0 && ${ZNAV_CDABLE_VARS} != -0 ]]; then
   builtin setopt CDABLE_VARS
 fi
