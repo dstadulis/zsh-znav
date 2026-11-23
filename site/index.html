@@ -1,0 +1,610 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>zsh-znav — Formally Verified, Zero-Fork Directory Navigation for Zsh</title>
+  <meta name="description" content="Interactive laboratory for zsh-znav: O(1) overflow-safe Log-Epoch frecency, No-Hijack shortcode bijection projected into Zsh's C nameddirtab (~cr), Powerlevel10k full-path + ~code prompt integration, and Z3/LCF machine-checked proofs.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&amp;display=swap">
+  <script>
+    try {
+      var savedTheme = localStorage.getItem("znav-theme");
+      if (savedTheme === "light" || savedTheme === "dark") {
+        document.documentElement.setAttribute("data-theme", savedTheme);
+      }
+    } catch (e) {}
+  </script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to interactive laboratory</a>
+
+  <header class="site-header">
+    <div class="site-header__inner">
+      <a class="brand" href="#top" aria-label="zsh-znav home">
+        <span class="brand__badge">~cr</span>
+        <span>zsh-znav</span>
+      </a>
+
+      <nav class="site-nav" aria-label="Sections">
+        <a href="#playground">Playground</a>
+        <a href="#lattice">Lattice K(d)</a>
+        <a href="#frecency">Log-Epoch &oplus;&tau;</a>
+        <a href="#benchmarks">Benchmarks</a>
+        <a href="#proofs">Proofs &amp; C Core</a>
+        <a href="#install">Install</a>
+      </nav>
+
+      <div class="header-actions">
+        <button type="button" id="theme-toggle" class="btn btn--sm" aria-pressed="false" title="Switch between Terminal (Dark) and Monograph (Light) theme">Monograph (Light)</button>
+        <a class="btn btn--sm btn--primary" href="https://github.com/dstadulis/zsh-znav" target="_blank" rel="noopener">GitHub &rarr;</a>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- ====================================================================
+         HERO & ARCHITECTURAL MATRIX
+         ==================================================================== -->
+    <section id="top" class="hero">
+      <div class="container">
+        <p class="eyebrow">100% Pure Zsh 5.9 &middot; Zero fork(2) &middot; Z3 SMT-LIB2 + LCF Machine-Checked</p>
+        <h1>Semantic Directory Shortcodes at Zsh C Hash-Table Speed</h1>
+        <p class="hero__lead">
+          Manual aliases (<code>alias cr='cd ~/CODE.REPOSITORIES'</code>) fail outside command position (<code>vim cr/foo</code>) and silently shadow POSIX utilities (<code>tr</code>, <code>pr</code>). Zsh's <code>cdr</code> (<code>~[1]</code>) mutates 100% of stack indices on every <code>cd</code> and rewrites <var>O</var>(<var>N</var>) lines. External tools (<code>zoxide</code>) pay 2&ndash;5 OS forks per call and cannot expand inline inside <code>diff ~cr/a ~sr/b</code>.
+          <strong><code>zsh-znav</code> projects an overflow-safe Log-Epoch frecency monoid and a proven hijack-free segment-initialism bijection directly into Zsh's C <code>nameddirtab</code> (<code>hash -d</code>) and <code>zsh_directory_name</code> hooks.</strong>
+        </p>
+
+        <div class="hero__cta-row">
+          <a class="btn btn--primary" href="#playground">Launch Zsh + P10k Playground</a>
+          <a class="btn" href="#lattice">Inspect Candidate Lattice K(d)</a>
+          <a class="btn" href="#frecency">Explore Log-Epoch &oplus;&tau; Decay</a>
+          <a class="btn" href="#install">Quickstart Install</a>
+        </div>
+
+        <div class="telemetry-strip">
+          <div class="stat-card">
+            <div class="stat-card__value" id="hero-stat-tilde">0.25 &mu;s</div>
+            <div class="stat-card__label" id="hero-stat-tilde-sub">27,040.8x faster than external jump</div>
+            <div class="stat-card__sub">Inline <code>~cr</code> expansion hits Zsh's C <code>nameddirtab</code> directly in-process (<code>0.17&ndash;0.25 &mu;s</code>, <code>0</code> forks).</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card__value" id="hero-stat-chpwd">0 forks</div>
+            <div class="stat-card__label" id="hero-stat-chpwd-sub">214.3x faster than Zsh cdr @ N=2000</div>
+            <div class="stat-card__sub"><var>O</var>(1) Top-<var>M</var> incremental RAM check + 1-line WAL append; XNU Mach <code>delta_forks == 0</code> even with <code>PATH=""</code>.</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card__value" id="hero-stat-churn">0.00% hijack</div>
+            <div class="stat-card__label" id="hero-stat-churn-sub">vs 89.5%&ndash;95.3% cdr recall churn</div>
+            <div class="stat-card__sub">Theorem 2b locks <code>~cr</code> against new directory exploration for <var>&tau;</var> ln <var>m</var> = 6.97 days after just 5 visits.</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card__value" id="hero-stat-proofs">QED &middot; 0 sorry</div>
+            <div class="stat-card__label">19 Z3 SMT + 225 LCF Kernel Steps</div>
+            <div class="stat-card__sub">Bit-blasted IEEE-754 <code>FPSort(11,53)</code>, Peano induction, Pigeonhole/Pareto/Impossibility &amp; 650-op differential trace.</div>
+          </div>
+        </div>
+
+        <div class="table-wrap" aria-label="Architectural comparison matrix">
+          <table class="comp-table">
+            <thead>
+              <tr>
+                <th>Capability / Invariant</th>
+                <th>Manual <code>alias</code></th>
+                <th>Static <code>hash -d</code></th>
+                <th>Zsh <code>cdr</code> (<code>~[1]</code>)</th>
+                <th>External (<code>zoxide</code>)</th>
+                <th class="col-znav"><code>zsh-znav</code> (Pure Zsh)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Human Config Maintenance</strong></td>
+                <td><span class="pill pill--bad">&Omega;(N) manual edits</span></td>
+                <td><span class="pill pill--bad">&Omega;(N) manual edits</span></td>
+                <td>0 bits</td>
+                <td>0 bits</td>
+                <td class="col-znav"><span class="pill pill--good">0 bits (Day-0 auto-seeded)</span></td>
+              </tr>
+              <tr>
+                <td><strong>Inline Path Args (<code>vim ~cr/f</code>)</strong></td>
+                <td><span class="pill pill--bad">No (cmd pos only)</span></td>
+                <td>Yes (<code>~cr</code>)</td>
+                <td>Unstable <code>~[1]</code></td>
+                <td><span class="pill pill--bad">No (needs <code>$(...)</code>)</span></td>
+                <td class="col-znav"><span class="pill pill--good">Yes (~cr, ~[cr], ~[code:ver])</span></td>
+              </tr>
+              <tr>
+                <td><strong>Bare Word Jump (<code>cr</code> + Enter)</strong></td>
+                <td>Shadows <code>/usr/bin/tr</code>!</td>
+                <td>With <code>CDABLE_VARS</code></td>
+                <td>No (<code>cdr 1</code>)</td>
+                <td>No (<code>z cr</code>)</td>
+                <td class="col-znav"><span class="pill pill--good">Yes (POSIX command-safe R)</span></td>
+              </tr>
+              <tr>
+                <td><strong><code>chpwd</code> Complexity &amp; Forks</strong></td>
+                <td>&mdash;</td>
+                <td>&mdash;</td>
+                <td><span class="pill pill--bad">O(N) slurp+lex+rewrite</span></td>
+                <td><span class="pill pill--amber">2 forks + 1 exec</span></td>
+                <td class="col-znav"><span class="pill pill--good">O(1) RAM + 1-line WAL, 0 forks</span></td>
+              </tr>
+              <tr>
+                <td><strong>Shortcode Muscle-Memory Stability</strong></td>
+                <td>Manual</td>
+                <td>Manual</td>
+                <td><span class="pill pill--bad">0% (shifts every cd)</span></td>
+                <td>Substring ties drift</td>
+                <td class="col-znav"><span class="pill pill--good">Proven No-Hijack Theorem 2b</span></td>
+              </tr>
+              <tr>
+                <td><strong>Powerlevel10k Prompt Integration</strong></td>
+                <td>None</td>
+                <td>Replaces path w/ <code>~cr</code></td>
+                <td><code>~[1]</code> only</td>
+                <td>None</td>
+                <td class="col-znav"><span class="pill pill--good">Full path + ~code badge (PR #2)</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         SECTION 1: LIVE ZSH + POWERLEVEL10K TERMINAL PLAYGROUND
+         ==================================================================== -->
+    <section id="playground" class="section">
+      <div class="container">
+        <div class="section__head">
+          <p class="eyebrow">Interactive Demo A &middot; 1-to-1 JS Port of proofs/znav_spec.py</p>
+          <h2>Live Zsh 5.9 + Powerlevel10k Terminal Playground</h2>
+          <p>
+            Every command below executes against an exact in-browser port of <code>znav_spec.py</code> paired with a live Zsh <code>cdr</code> MRU stack comparator. Observe Line #1 of the Powerlevel10k prompt displaying <strong>both</strong> the readable directory path and the <code>~$ZNAV_PWD_CODE</code> shortcode badge (automatically omitted in <code>~</code>).
+          </p>
+        </div>
+
+        <div class="scenario-bar" role="group" aria-label="Guided 1-click demo scenarios">
+          <span class="scenario-bar__label">1-Click Guided Demos:</span>
+          <button type="button" class="btn btn--sm is-active" data-scenario="day0">1. Day-0 Zero-Config Jump</button>
+          <button type="button" class="btn btn--sm" data-scenario="inline">2. Inline ~cr Everywhere</button>
+          <button type="button" class="btn btn--sm" data-scenario="nohijack">3. No-Hijack vs cdr Churn</button>
+          <button type="button" class="btn btn--sm" data-scenario="posix">4. POSIX /usr/bin/tr Guard</button>
+          <button type="button" class="btn btn--sm" data-scenario="fuzzy">5. Multi-Token &amp; Subpath + Entropy</button>
+          <button type="button" class="btn btn--sm" id="term-reset-btn">Reset Sandbox</button>
+        </div>
+
+        <div class="playground-grid">
+          <!-- Interactive Terminal Window -->
+          <div class="terminal-window" id="terminal-window">
+            <div class="terminal-titlebar">
+              <div class="terminal-dots" aria-hidden="true">
+                <span class="terminal-dot terminal-dot--red"></span>
+                <span class="terminal-dot terminal-dot--yellow"></span>
+                <span class="terminal-dot terminal-dot--green"></span>
+              </div>
+              <div class="terminal-title">zsh 5.9 &mdash; zsh-znav + powerlevel10k (0 forks)</div>
+              <div class="terminal-controls">
+                <label for="p10k-mode-select">ZNAV_P10K_PROMPT=</label>
+                <select id="p10k-mode-select" class="terminal-select">
+                  <option value="both" selected>both (dir + ~code)</option>
+                  <option value="shortcode">shortcode (~code)</option>
+                  <option value="path">path (dir only)</option>
+                  <option value="off">off (native %~)</option>
+                </select>
+                <button type="button" class="btn btn--sm" id="term-clear-btn">Clear</button>
+              </div>
+            </div>
+
+            <div class="terminal-body" id="term-history" aria-live="polite"></div>
+
+            <div class="terminal-input-dock">
+              <div class="p10k-line1" id="p10k-live-line1"></div>
+              <form id="term-form" class="p10k-input-row" autocomplete="off">
+                <span class="p10k-char" aria-hidden="true">&#10095;</span>
+                <label for="term-input" class="skip-link">Zsh command input</label>
+                <input
+                  id="term-input"
+                  type="text"
+                  placeholder="Type a Zsh command (e.g. cr, vim ~cr/zsh-znav/README.md, mkdir ~/CACHE.REPOS, j -e cr, j -s, Tab to complete)..."
+                  autocomplete="off"
+                  autocapitalize="off"
+                  spellcheck="false"
+                >
+                <button type="submit" class="btn btn--sm btn--primary">Run</button>
+              </form>
+              <div id="term-completions" class="term-completions" aria-label="Tab completions"></div>
+              <div class="quick-cmds" aria-label="Quick command chips">
+                <button type="button" class="quick-cmd" data-cmd="cr">cr</button>
+                <button type="button" class="quick-cmd" data-cmd="sr">sr</button>
+                <button type="button" class="quick-cmd" data-cmd="zz">zz</button>
+                <button type="button" class="quick-cmd" data-cmd="zw">zw</button>
+                <button type="button" class="quick-cmd" data-cmd="cd ~">cd ~</button>
+                <button type="button" class="quick-cmd" data-cmd="vim ~cr/zsh-znav/README.md">vim ~cr/zsh-znav/README.md</button>
+                <button type="button" class="quick-cmd" data-cmd="diff -u ~cr/a.zsh ~sr/a.zsh">diff -u ~cr/a.zsh ~sr/a.zsh</button>
+                <button type="button" class="quick-cmd" data-cmd="j -l">j -l</button>
+                <button type="button" class="quick-cmd" data-cmd="j -e cr">j -e cr</button>
+                <button type="button" class="quick-cmd" data-cmd="j -s">j -s</button>
+                <button type="button" class="quick-cmd" data-cmd="cdr -l">cdr -l</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Side-by-Side Kernel Hash Table vs cdr Stack Inspector -->
+          <aside class="inspector-panel" aria-label="Live Zsh C nameddirtab and cdr stack state">
+            <div class="inspector-header">
+              <h3>Live Kernel <code>$nameddirs</code> vs <code>cdr</code> Stack</h3>
+              <span class="pill pill--good">O(1) Sync</span>
+            </div>
+
+            <div class="inspector-kpis">
+              <div class="mini-kpi">
+                <span class="mini-kpi__label"><code>$ZNAV_PWD_CODE</code></span>
+                <span class="mini-kpi__val mono" id="inspector-pwd-code">""</span>
+              </div>
+              <div class="mini-kpi">
+                <span class="mini-kpi__label">znav Hijacks</span>
+                <span class="mini-kpi__val znav-locked" id="inspector-hijack-count">0</span>
+              </div>
+              <div class="mini-kpi">
+                <span class="mini-kpi__label">cdr Stack Shifts</span>
+                <span class="mini-kpi__val cdr-shifted" id="inspector-cdr-shifts">0</span>
+              </div>
+            </div>
+
+            <div class="inspector-table-wrap">
+              <table class="inspector-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th><code>znav</code> (C hash)</th>
+                    <th><code>cdr</code> MRU</th>
+                    <th>P(d)</th>
+                    <th>Directory</th>
+                  </tr>
+                </thead>
+                <tbody id="inspector-table-body"></tbody>
+              </table>
+            </div>
+
+            <div>
+              <div class="mini-kpi__label" style="margin-bottom:0.25rem;">Append-Only WAL Tail (<code>$ZNAV_DATA_DIR/wal.log</code>):</div>
+              <div class="wal-box" id="inspector-wal-tail">V 1700000005.00000000 $'/Users/username/CODE.REPOSITORIES'</div>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         SECTION 2: CANDIDATE LATTICE K(d) & COLLISION DISAMBIGUATOR
+         ==================================================================== -->
+    <section id="lattice" class="section">
+      <div class="container">
+        <div class="section__head">
+          <p class="eyebrow">Interactive Demo B &middot; Primitive 2 (Theorem 2a &amp; 2c)</p>
+          <h2>Candidate Lattice <code>K(d)</code> &amp; Collision Disambiguator</h2>
+          <p>
+            Type any directory path or select a tricky real-world case below to inspect how <code>tokenize(s)</code> splits camelCase, acronyms, and punctuation into bounded integer-composition prefixes (Tiers 1&ndash;5), skips reserved commands/users/peers <var>R</var>, and selects the unique lexicographically optimal shortcode <var>&phi;</var>(<var>d</var>) &isin; &#x2112;<sub>id</sub> &#x2216; <var>R</var>.
+          </p>
+        </div>
+
+        <div class="plate">
+          <div class="lattice-controls">
+            <div class="input-group">
+              <label for="lattice-path-input">Canonical or Home-Relative Directory Path:</label>
+              <input
+                type="text"
+                id="lattice-path-input"
+                class="text-input"
+                value="~/CACHE.REPOS"
+                spellcheck="false"
+                autocomplete="off"
+              >
+              <div class="preset-row" role="group" aria-label="Directory path presets">
+                <button type="button" class="btn btn--sm" data-lattice-preset="~/CODE.REPOSITORIES">~/CODE.REPOSITORIES</button>
+                <button type="button" class="btn btn--sm is-active" data-lattice-preset="~/CACHE.REPOS">~/CACHE.REPOS</button>
+                <button type="button" class="btn btn--sm" data-lattice-preset="~/TEMP.REPOS">~/TEMP.REPOS</button>
+                <button type="button" class="btn btn--sm" data-lattice-preset="~/HTMLParser.v2">~/HTMLParser.v2</button>
+                <button type="button" class="btn btn--sm" data-lattice-preset="~/GIT.STATUS">~/GIT.STATUS</button>
+                <button type="button" class="btn btn--sm" data-lattice-preset="~/myURLShortenerApp">~/myURLShortenerApp</button>
+                <button type="button" class="btn btn--sm" data-lattice-preset="/private/tmp/café">/private/tmp/café</button>
+                <button type="button" class="btn btn--sm" data-lattice-preset="~/2026-roadmap">~/2026-roadmap</button>
+              </div>
+            </div>
+
+            <div class="check-grid" role="group" aria-label="Namespace reservation toggles">
+              <label class="check-item">
+                <input type="checkbox" id="lat-opt-peer-cr" checked>
+                <span>Higher-ranked peer <code>~/CODE.REPOSITORIES</code> (#1) holds <code>~cr</code></span>
+              </label>
+              <label class="check-item">
+                <input type="checkbox" id="lat-opt-commands" checked>
+                <span>Reserve POSIX <code>$commands</code> / <code>$builtins</code> (<code>tr</code>, <code>pr</code>, <code>ls</code>, <code>cp</code>, <code>id</code>...)</span>
+              </label>
+              <label class="check-item">
+                <input type="checkbox" id="lat-opt-alias-gs" checked>
+                <span>Late <code>~/.zshrc</code> alias: <code>alias gs='git status'</code> (<code>_znav_precmd_once</code>)</span>
+              </label>
+              <label class="check-item">
+                <input type="checkbox" id="lat-opt-manual-hd">
+                <span>Manual user <code>hash -d hpv=/opt/hpv</code> preserved</span>
+              </label>
+              <label class="check-item">
+                <input type="checkbox" id="lat-opt-os-users" checked>
+                <span>macOS OpenDirectory tilde probe (<code>~root</code>, <code>~daemon</code>, <code>~username</code>)</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="lattice-pipeline">
+            <div class="stage-box" id="lattice-stage-canon"></div>
+            <div class="stage-box" id="lattice-stage-tokens"></div>
+            <div class="stage-box stage-box--winner" id="lattice-winner-banner"></div>
+          </div>
+
+          <div class="tiers-list" id="lattice-tiers-grid"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         SECTION 3: LOG-EPOCH FRECENCY (⊕_τ) & NO-HIJACK DECAY VISUALIZER
+         ==================================================================== -->
+    <section id="frecency" class="section">
+      <div class="container">
+        <div class="section__head">
+          <p class="eyebrow">Interactive Demo C &middot; Primitive 1 &amp; Theorem 2b</p>
+          <h2>Log-Epoch Frecency (&oplus;<sub>&tau;</sub>) &amp; No-Hijack Protection Window</h2>
+          <p>
+            Instead of rescaling all <var>N</var> entries on every <code>cd</code> or overflowing IEEE-754 <code>double</code> via <var>e</var><sup><var>t</var>/<var>&tau;</var></sup> = &infin;, <code>zsh-znav</code> folds timestamps via <var>&Lambda;</var><sub><var>d</var></sub> &oplus;<sub>&tau;</sub> <var>t</var> = max(<var>&Lambda;</var><sub><var>d</var></sub>, <var>t</var>) + <var>&tau;</var> ln(1 + exp(&minus;|<var>&Lambda;</var><sub><var>d</var></sub> &minus; <var>t</var>|/<var>&tau;</var>)). Watch how curves <strong>never cross without new visits</strong> (<var>O</var>(0) aging) and how <var>m</var> = 5 visits create a <strong><var>&tau;</var> ln 5 = 6.97-day hijack-free shield</strong>!
+          </p>
+        </div>
+
+        <div class="plate">
+          <div class="frecency-toolbar">
+            <button type="button" class="btn btn--sm btn--primary" id="frec-btn-visit-cr">+ Visit CODE.REPOSITORIES (@ cursor t)</button>
+            <button type="button" class="btn btn--sm" id="frec-btn-visit-sr">+ Visit SCRIPT.REPOS (@ cursor t)</button>
+            <button type="button" class="btn btn--sm" id="frec-btn-spawn-car">Spawn / Visit CACHE.REPOS (@ cursor t)</button>
+            <button type="button" class="btn btn--sm" id="frec-btn-jitter">+ Out-of-Order NTP Event (t &minus; 6h)</button>
+            <button type="button" class="btn btn--sm" id="frec-scale-toggle">Y-Axis: Linear S_d(t)</button>
+            <button type="button" class="btn btn--sm" id="frec-btn-reset">Reset (5 Visits @ Day 0)</button>
+          </div>
+
+          <div class="sliders-row">
+            <div class="slider-field">
+              <label for="frec-halflife-slider">
+                <span>Half-Life <var>H</var> (<code>ZNAV_HALF_LIFE</code>)</span>
+                <strong id="frec-halflife-val">72h (3.0 days, &tau; = 103.9h)</strong>
+              </label>
+              <input type="range" id="frec-halflife-slider" min="12" max="168" step="6" value="72">
+            </div>
+
+            <div class="slider-field">
+              <label for="frec-cursor-slider">
+                <span>Inspection Wall-Clock Cursor <var>t</var></span>
+                <strong id="frec-cursor-val">Day 2.50</strong>
+              </label>
+              <input type="range" id="frec-cursor-slider" min="0" max="14" step="0.05" value="2.5">
+            </div>
+          </div>
+
+          <div class="svg-chart-wrap">
+            <svg id="frec-svg" viewBox="0 0 880 320" role="img" aria-label="Interactive Log-Epoch frecency decay and No-Hijack protection window chart"></svg>
+          </div>
+
+          <div class="theorem-readouts">
+            <div class="stage-box" id="frec-window-readout"></div>
+            <div class="stage-box" id="frec-invariance-readout"></div>
+            <div class="stage-box" id="frec-ieee-readout"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         SECTION 4: BENCHMARK & ZIPF(s) INFORMATION-EFFICIENCY EXPLORER
+         ==================================================================== -->
+    <section id="benchmarks" class="section">
+      <div class="container">
+        <div class="section__head">
+          <p class="eyebrow">Interactive Demo D &middot; Auto-Synced from benchmarks/results.json</p>
+          <h2>Quantitative Latency &amp; Information-Efficiency Explorer</h2>
+          <p>
+            Data below is loaded directly from <code>site/bench_data.js</code>, synchronized automatically with <code>benchmarks/results.json</code> and <code>README.md</code> by <code>benchmarks/update_readme.py</code> and <code>perf-autoupdate.yml</code>.
+          </p>
+        </div>
+
+        <div class="bench-meta-banner" id="bench-env-banner">
+          <span>Host: Apple M2 Pro (Virtual) (arm64) &middot; macOS 26.7.2 &middot; Zsh 5.9 &middot; 1000 iterations/point</span>
+          <span class="pill pill--blue">Source: benchmarks/results.json</span>
+        </div>
+
+        <div class="bench-charts-grid">
+          <div class="chart-card">
+            <div class="chart-card__head">
+              <h3>1. <code>chpwd</code> Hook Scaling (<var>N</var> = 50 &rarr; 2000 Dirs)</h3>
+              <button type="button" class="btn btn--sm" id="bench-scale-btn">Scale: Log10</button>
+            </div>
+            <div id="bench-chpwd-chart"></div>
+          </div>
+
+          <div class="chart-card">
+            <div class="chart-card__head">
+              <h3>2. Jump &amp; Inline Path Expansion (<var>N</var> = 500)</h3>
+              <span class="pill pill--good" id="bench-tilde-pill">~cr: 0.25 &mu;s</span>
+            </div>
+            <div id="bench-jump-chart"></div>
+          </div>
+        </div>
+
+        <div class="plate">
+          <div class="chart-card__head">
+            <h3>3. Interactive Zipf(<var>s</var>) Keystroke, Tail-Miss &amp; Recall-Churn Calculator</h3>
+            <div class="preset-row" style="margin-top:0;">
+              <button type="button" class="btn btn--sm" data-zipf-preset="30">Measured N=30</button>
+              <button type="button" class="btn btn--sm is-active" data-zipf-preset="100">Measured N=100</button>
+              <button type="button" class="btn btn--sm" data-zipf-preset="500">Measured N=500</button>
+            </div>
+          </div>
+
+          <div class="zipf-grid">
+            <div class="check-grid">
+              <div class="slider-field">
+                <label for="zipf-n-slider">
+                  <span>Tracked Workspace Size <var>N</var></span>
+                  <strong id="zipf-n-val">100 dirs</strong>
+                </label>
+                <input type="range" id="zipf-n-slider" min="20" max="2000" step="10" value="100">
+              </div>
+
+              <div class="slider-field">
+                <label for="zipf-s-slider">
+                  <span>Zipf Skew Exponent <var>s</var></span>
+                  <strong id="zipf-s-val">s = 1.20</strong>
+                </label>
+                <input type="range" id="zipf-s-slider" min="0.60" max="1.80" step="0.05" value="1.20">
+              </div>
+
+              <div class="slider-field">
+                <label for="zipf-jumps-slider">
+                  <span>Directory Navigations / Day</span>
+                  <strong id="zipf-jumps-val">120 / day</strong>
+                </label>
+                <input type="range" id="zipf-jumps-slider" min="20" max="500" step="10" value="120">
+              </div>
+
+              <p style="font-size:0.78rem; color:var(--text-muted); margin:0.35rem 0 0;">
+                By <strong>Theorem 3b</strong>, whenever <var>s</var> &gt; 1 (&zeta;(<var>s</var>) &lt; &infin;), Shannon entropy <var>H</var><sub>37</sub>(<var>P</var>) = <var>O</var>(1) converges to a finite constant as <var>N</var> &rarr; &infin;, keeping <code>znav</code>'s expected shortcode length near <strong>~2.2 chars</strong> even across thousands of repositories!
+              </p>
+            </div>
+
+            <div id="zipf-results"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         SECTION 5: FORMAL VERIFICATION & ZSH 5.9 C-INTERNALS DEEP DIVE
+         ==================================================================== -->
+    <section id="proofs" class="section">
+      <div class="container">
+        <div class="section__head">
+          <p class="eyebrow">Section E &middot; Machine-Checked Certificates &amp; Upstream Zsh 5.9 Audit</p>
+          <h2>Formal Verification Pillars &amp; Zsh 5.9 C-Core Discoveries</h2>
+          <p>
+            Every algebraic, floating-point, combinatorial, and information-theoretic guarantee is machine-verified offline via <code>make proof</code> (<code>python3 proofs/verify_all.py</code>) with tamper-rejection checks and 3-way randomized differential conformance against live Zsh 5.9.
+          </p>
+        </div>
+
+        <div class="tabs-row" role="tablist" aria-label="Formal verification pillars">
+          <button type="button" class="btn btn--sm is-active" role="tab" aria-selected="true" data-proof-tab="smt">Pillar 1: Z3 SMT-LIB2 + IEEE-754 Float64 (19 QED)</button>
+          <button type="button" class="btn btn--sm" role="tab" aria-selected="false" data-proof-tab="lcf">Pillar 2: LCF Peano Kernel (225 Steps, 0 sorry)</button>
+          <button type="button" class="btn btn--sm" role="tab" aria-selected="false" data-proof-tab="matroid">Pillar 3: Bijection, Pareto &amp; Online Impossibility</button>
+          <button type="button" class="btn btn--sm" role="tab" aria-selected="false" data-proof-tab="conformance">Pillar 4: 650-Op 3-Way Conformance &amp; Mach 0-Fork</button>
+        </div>
+
+        <div class="proof-detail" id="proof-detail-pane"></div>
+
+        <div class="internals-grid">
+          <article class="internal-card">
+            <h3>1. <code>Src/utils.c</code> UTF-8 Byte Slicing in <code>zsh_directory_name</code></h3>
+            <p>
+              In Zsh 5.9's C <code>finddir()</code>, dynamic directory contraction (mode <code>d</code>) advances past <code>$reply[2]</code> <strong>bytes</strong>, whereas Zsh's default <code>MULTIBYTE</code> <code>${#dir}</code> counts <em>characters</em>. Returning character count <code>17</code> instead of byte count <code>18</code> on <code>/private/tmp/caf&eacute;</code> slices mid-codepoint into <code>~[cafe]$'\xa9'/sub</code>!
+            </p>
+            <pre><code>integer blen
+{ setopt localoptions no_multibyte; blen=${#matched_dir}; }
+typeset -ga reply=("$code" $blen)</code></pre>
+          </article>
+
+          <article class="internal-card">
+            <h3>2. macOS OpenDirectory Empty <code>$userdirs</code> Trap</h3>
+            <p>
+              On Linux (<code>/etc/passwd</code>), <code>${(k)userdirs}</code> enumerates local users. On macOS Darwin (OpenDirectory), <code>${#userdirs} == 0</code> and <code>${+userdirs[root]} == 0</code>&mdash;yet <code>hash -d root=/repo</code> clobbers <code>~root</code>! <code>zsh-znav</code> detects every OS user in <code>0</code> forks via pre-projection tilde probing:
+            </p>
+            <pre><code>(( $+userdirs[$cand] )) &amp;&amp; return 0
+(( $+nameddirs[$cand] )) &amp;&amp; return 1
+local tilde="~$cand"; [[ ${~tilde} != $tilde ]]</code></pre>
+          </article>
+
+          <article class="internal-card">
+            <h3>3. Bare <code>float</code> 10-Digit Truncation (~110 ms Precision Loss)</h3>
+            <p>
+              In Zsh, declaring bare <code>float x</code> formats <code>$EPOCHREALTIME</code> to 10 significant digits (<code>1.795126494e+09</code>) whenever stored into associative arrays or WAL files, losing <code>~0.11 s</code> (<code>500,000x</code> worse than IEEE-754 roundoff). <code>float -E 17</code> preserves lossless 53-bit round-trips (<code>max |dLambda| == 0.000e+00</code>).
+            </p>
+            <pre><code>float -E 17 _cur _hl=$ZNAV_HALF_LIFE _tau _mx _diff _next
+(( _tau = _hl / log(2.0) ))
+(( _next = _mx + _tau * log(1.0 + exp(-_diff / _tau)) ))</code></pre>
+          </article>
+
+          <article class="internal-card">
+            <h3>4. Selective <code>zsh/files</code> &amp; <code>always</code>-Block P10k Wrapping</h3>
+            <p>
+              Unfiltered <code>zmodload zsh/files</code> shadows <code>/bin/mv</code> and <code>/bin/mkdir</code> globally; <code>zsh-znav</code> loads only <code>-F zsh/files b:zf_mv b:zf_mkdir</code> for atomic POSIX <code>rename(2)</code> WAL compaction, and wraps Powerlevel10k <code>prompt_dir</code> in an exception-safe <code>{ ... } always { ... }</code> block.
+            </p>
+            <pre><code>zmodload -F zsh/files b:zf_mv b:zf_mkdir b:zf_rm b:zf_rmdir
+zf_mv -f -- "$tmp_db" "$ZNAV_DATA_DIR/db.tsv"</code></pre>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         SECTION 6: QUICKSTART & PLUGIN MANAGER INSTALLATION
+         ==================================================================== -->
+    <section id="install" class="section">
+      <div class="container">
+        <div class="section__head">
+          <p class="eyebrow">Zero External Dependencies &middot; macOS &amp; Linux Zsh 5.8+</p>
+          <h2>Quickstart Installation</h2>
+          <p>
+            Install in 10 seconds with the symlink + <code>.zwc</code> bytecode installer or any Zsh plugin manager. Day-0 cold start automatically seeds immediate subdirectories of <code>$HOME</code> so <code>~cr</code>, bare <code>cr</code>, and <code>j cr</code> work on your very first prompt.
+          </p>
+        </div>
+
+        <div class="plate">
+          <div class="tabs-row" role="tablist" aria-label="Installation methods">
+            <button type="button" class="btn btn--sm is-active" data-install-tab="omz">Oh My Zsh (./install.sh)</button>
+            <button type="button" class="btn btn--sm" data-install-tab="antidote">Antidote</button>
+            <button type="button" class="btn btn--sm" data-install-tab="zinit">Zinit</button>
+            <button type="button" class="btn btn--sm" data-install-tab="sheldon">Sheldon</button>
+            <button type="button" class="btn btn--sm" data-install-tab="znap">Znap</button>
+            <button type="button" class="btn btn--sm" data-install-tab="direct">Direct Source</button>
+          </div>
+
+          <div class="install-box">
+            <button type="button" class="btn btn--sm copy-btn" id="copy-install-btn">Copy</button>
+            <pre><code id="install-code-block">git clone https://github.com/dstadulis/zsh-znav.git
+cd zsh-znav
+./install.sh          # Links into $ZSH_CUSTOM/plugins/zsh-znav, compiles .zwc, seeds $HOME
+# Add zsh-znav to plugins=(...) in ~/.zshrc, then run: exec zsh</code></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container site-footer__inner">
+      <div>
+        <strong><code>zsh-znav</code></strong> &mdash; Formally Verified, Zero-Fork Directory Navigation for Zsh &middot; MIT License.
+      </div>
+      <div>
+        <a href="https://github.com/dstadulis/zsh-znav" target="_blank" rel="noopener">Repository</a>
+        &nbsp;&middot;&nbsp;
+        <a href="#playground">Playground</a>
+        &nbsp;&middot;&nbsp;
+        <a href="#proofs">Formal Proofs</a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="bench_data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

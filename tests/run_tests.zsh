@@ -17,6 +17,7 @@
 #  12. Hermetic Packaging & Installer (`zsh-znav.plugin.zsh`, `install.sh`, `uninstall.sh`)
 #  13. Benchmark Pipeline, README Auto-Injector & CI/CD Workflow Loop-Safety Audit
 #  14. Powerlevel10k Full-Path + Shortcode Prompt Integration (`ZNAV_PWD_CODE`, `ZNAV_P10K_PROMPT`, Reload & `always`-Block Safety)
+#  15. Interactive GitHub Pages Site (`site/`), Offline `file://` Safety, `bench_data.js` Sync, `pages.yml` & JS Engine Parity
 # ==============================================================================
 
 emulate -L zsh
@@ -1273,9 +1274,13 @@ for non_algo_file in (
     "README.md",
     "benchmarks/results.md",
     "benchmarks/results.json",
+    "site/bench_data.js",
+    "site/index.html",
+    "site/app.js",
     "docs/zsh_native_audit.md",
     "proofs/formal_proofs.md",
     ".github/workflows/perf-autoupdate.yml",
+    ".github/workflows/pages.yml",
     ".github/workflows/ci.yml",
 ):
     assert not matches_any_trigger(non_algo_file, push_paths), (
@@ -1843,6 +1848,348 @@ EOF
     [[ $out_14e == *"REAL_P10K_OK"* ]] \
       && pass "Live Powerlevel10k theme renders both readable path and ~zz/~zw shortcode, omits badge in \$HOME, and survives reload" \
       || fail "Suite 14e live p10k output: $out_14e"
+  fi
+}
+
+# ==============================================================================
+# SUITE 15: Interactive GitHub Pages Site (`site/`), Sync, Workflow & JS Parity
+# ==============================================================================
+print -r -- "\n--- Suite 15: GitHub Pages Site, Offline Safety, Benchmark Sync & JS Spec Parity ---"
+() {
+  local sb="$SANDBOX_ROOT/s15_site"
+  zf_mkdir -p "$sb/sync_repo/benchmarks" "$sb/sync_repo/site"
+
+  # 15a. Static Asset / Relative Link / Anchor Integrity & Offline `file://` Safety
+  local out_15a
+  out_15a=$(python3 -B - "$REPO_ROOT" 2>&1 <<'PYEOF'
+import html.parser
+import re
+import sys
+from pathlib import Path
+
+repo = Path(sys.argv[1])
+site_dir = repo / "site"
+readme_txt = (repo / "README.md").read_text(encoding="utf-8")
+
+# Verify live GitHub Pages URL is in README.md strictly outside benchmark sentinels
+begin_m = "<!-- BEGIN ZNAV_BENCHMARKS -->"
+end_m = "<!-- END ZNAV_BENCHMARKS -->"
+b_idx = readme_txt.index(begin_m)
+e_idx = readme_txt.index(end_m)
+outside_readme = readme_txt[:b_idx] + readme_txt[e_idx + len(end_m):]
+assert "https://dstadulis.github.io/zsh-znav/" in outside_readme, (
+    "Expected https://dstadulis.github.io/zsh-znav/ link in README.md outside sentinels"
+)
+
+for fname in ("index.html", "styles.css", "app.js", "bench_data.js", "favicon.svg"):
+    fp = site_dir / fname
+    assert fp.is_file() and fp.stat().st_size > 0, f"Missing or empty site file: {fp}"
+
+html_txt = (site_dir / "index.html").read_text(encoding="utf-8")
+css_txt = (site_dir / "styles.css").read_text(encoding="utf-8")
+js_txt = (site_dir / "app.js").read_text(encoding="utf-8")
+
+class SiteHTMLVerifier(html.parser.HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.ids = set()
+        self.refs = []
+        self.module_scripts = []
+        self._code_depth = 0
+        self.raw_math_leaks = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag in ("script", "style", "pre", "code"):
+            self._code_depth += 1
+        amap = dict(attrs)
+        if amap.get("id"):
+            self.ids.add(amap["id"])
+        if tag == "script" and amap.get("type") == "module":
+            self.module_scripts.append(amap.get("src", "<inline>"))
+        for attr in ("href", "src"):
+            val = amap.get(attr)
+            if val:
+                self.refs.append((tag, attr, val))
+
+    def handle_endtag(self, tag):
+        if tag in ("script", "style", "pre", "code") and self._code_depth > 0:
+            self._code_depth -= 1
+
+    def handle_data(self, data):
+        if self._code_depth == 0 and re.search(r"\$[^$]+\$|\\[A-Za-z]+", data):
+            self.raw_math_leaks.append((self.getpos(), data.strip()))
+
+p = SiteHTMLVerifier()
+p.feed(html_txt)
+assert not p.module_scripts, f"ES module scripts fail under file:// CORS: {p.module_scripts}"
+assert not p.raw_math_leaks, f"Unrendered raw LaTeX/$...$ in site/index.html: {p.raw_math_leaks}"
+
+for tag, attr, ref in p.refs:
+    if ref.startswith(("http://", "https://", "mailto:", "data:")):
+        continue
+    if ref.startswith("#"):
+        anchor = ref[1:]
+        assert not anchor or anchor in p.ids, f"Broken internal anchor {ref} in <{tag} {attr}>"
+        continue
+    rel = ref.split("#", 1)[0].split("?", 1)[0]
+    target = site_dir / rel
+    assert target.is_file() and target.stat().st_size > 0, f"Broken relative asset {ref} -> {target}"
+
+for url_ref in re.findall(r"url\(([^)]+)\)", css_txt):
+    cleaned = url_ref.strip().strip("\"'")
+    if cleaned.startswith(("http://", "https://", "data:", "#")):
+        continue
+    rel = cleaned.split("#", 1)[0].split("?", 1)[0]
+    assert (site_dir / rel).is_file(), f"Broken CSS url() reference: {cleaned}"
+
+assert not re.search(r"\bfetch\s*\(|\bXMLHttpRequest\b", js_txt), (
+    "site/app.js must not use fetch()/XMLHttpRequest so file:// offline viewing works 100%"
+)
+assert not re.search(r"\bfetch\s*\(|\bXMLHttpRequest\b", html_txt), (
+    "site/index.html must not use fetch()/XMLHttpRequest"
+)
+print("SITE_ASSETS_OK")
+PYEOF
+  )
+  assert_true $? "Suite 15a (site/ asset, anchor & offline file:// safety audit) exited 0"
+  [[ $out_15a == *"SITE_ASSETS_OK"* ]] \
+    && pass "All site/ relative assets, internal #anchors, README link, and file:// zero-fetch invariants verified" \
+    || fail "Suite 15a output: $out_15a"
+
+  # 15b. `site/bench_data.js` 1-to-1 sync with `benchmarks/results.json` + `/tmp` sandbox update test
+  python3 -B "$REPO_ROOT/benchmarks/update_readme.py" --check >/dev/null
+  assert_true $? "benchmarks/update_readme.py --check confirms README.md & site/bench_data.js are synchronized"
+
+  local out_15b
+  out_15b=$(python3 -B - "$REPO_ROOT" "$sb/sync_repo" 2>&1 <<'PYEOF'
+import json
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+repo = Path(sys.argv[1])
+sb_repo = Path(sys.argv[2])
+
+shutil.copy2(repo / "benchmarks" / "results.json", sb_repo / "benchmarks" / "results.json")
+shutil.copy2(repo / "README.md", sb_repo / "README.md")
+shutil.copy2(repo / "site" / "bench_data.js", sb_repo / "site" / "bench_data.js")
+
+# Mutate results.json in sandbox -> --check MUST detect stale bench_data.js & README.md
+data = json.loads((sb_repo / "benchmarks" / "results.json").read_text(encoding="utf-8"))
+data["jump_latency_us"]["tilde_static"] = 0.19
+(sb_repo / "benchmarks" / "results.json").write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
+rc_stale = subprocess.run(
+    [
+        sys.executable, "-B", str(repo / "benchmarks" / "update_readme.py"),
+        "--results", str(sb_repo / "benchmarks" / "results.json"),
+        "--readme", str(sb_repo / "README.md"),
+        "--check",
+    ],
+    capture_output=True,
+).returncode
+assert rc_stale != 0, "Expected --check to fail when bench_data.js/README.md are stale"
+
+# Run updater -> both sandbox README.md and sandbox site/bench_data.js must update and pass --check
+subprocess.run(
+    [
+        sys.executable, "-B", str(repo / "benchmarks" / "update_readme.py"),
+        "--results", str(sb_repo / "benchmarks" / "results.json"),
+        "--readme", str(sb_repo / "README.md"),
+    ],
+    check=True,
+    capture_output=True,
+)
+subprocess.run(
+    [
+        sys.executable, "-B", str(repo / "benchmarks" / "update_readme.py"),
+        "--results", str(sb_repo / "benchmarks" / "results.json"),
+        "--readme", str(sb_repo / "README.md"),
+        "--check",
+    ],
+    check=True,
+    capture_output=True,
+)
+updated_js = (sb_repo / "site" / "bench_data.js").read_text(encoding="utf-8")
+assert '"tilde_static": 0.19' in updated_js, "Updated bench_data.js missing mutated value"
+print("BENCH_JS_SYNC_OK")
+PYEOF
+  )
+  assert_true $? "Suite 15b (sandbox bench_data.js stale detection & auto-resync) exited 0"
+  [[ $out_15b == *"BENCH_JS_SYNC_OK"* ]] \
+    && pass "update_readme.py keeps site/bench_data.js & README.md in 1-to-1 lockstep with benchmarks/results.json" \
+    || fail "Suite 15b output: $out_15b"
+
+  # 15c. `.github/workflows/pages.yml` & `perf-autoupdate.yml` site sync audit
+  local out_15c
+  out_15c=$(python3 -B - "$REPO_ROOT/.github/workflows/pages.yml" "$REPO_ROOT/.github/workflows/perf-autoupdate.yml" 2>&1 <<'PYEOF'
+import sys
+from pathlib import Path
+
+pages_p = Path(sys.argv[1])
+perf_p = Path(sys.argv[2])
+assert pages_p.is_file(), f"Missing {pages_p}"
+pages_raw = pages_p.read_text(encoding="utf-8")
+perf_raw = perf_p.read_text(encoding="utf-8")
+
+for lineno, ln in enumerate(pages_raw.splitlines(), 1):
+    assert "\t" not in ln, f"Tab character in pages.yml:{lineno}"
+
+try:
+    import yaml  # type: ignore
+    doc = yaml.safe_load(pages_raw)
+    assert isinstance(doc, dict) and "jobs" in doc
+    on_cfg = doc.get("on") or doc.get(True)
+    assert "push" in on_cfg and "workflow_dispatch" in on_cfg
+    assert set(on_cfg["push"]["paths"]) == {
+        "site/**",
+        "benchmarks/results.json",
+        ".github/workflows/pages.yml",
+    }
+    perms = doc.get("permissions", {})
+    assert perms.get("pages") == "write" and perms.get("id-token") == "write"
+except ImportError:
+    pass
+
+for req in (
+    "actions/configure-pages@v5",
+    "actions/upload-pages-artifact@v3",
+    "actions/deploy-pages@v4",
+    ".nojekyll",
+    "pages: write",
+    "id-token: write",
+    "site/**",
+    "benchmarks/results.json",
+):
+    assert req in pages_raw, f"Missing '{req}' in pages.yml"
+
+assert "site/bench_data.js" in perf_raw, "perf-autoupdate.yml must stage site/bench_data.js"
+print("PAGES_WORKFLOW_OK")
+PYEOF
+  )
+  assert_true $? "Suite 15c (pages.yml YAML & deployment workflow validation) exited 0"
+  [[ $out_15c == *"PAGES_WORKFLOW_OK"* ]] \
+    && pass "pages.yml & perf-autoupdate.yml validated (configure-pages@v5, upload-pages-artifact@v3, deploy-pages@v4, .nojekyll)" \
+    || fail "Suite 15c output: $out_15c"
+
+  # 15d. JS Engine (`site/app.js`) 1-to-1 Mathematical Conformance vs `proofs/znav_spec.py`
+  local node_bin=${commands[node]:-}
+  [[ -z $node_bin && -x /opt/homebrew/bin/node ]] && node_bin=/opt/homebrew/bin/node
+  [[ -z $node_bin && -x /usr/local/bin/node ]] && node_bin=/usr/local/bin/node
+
+  if [[ -n $node_bin ]]; then
+    "$node_bin" --check "$REPO_ROOT/site/app.js" && "$node_bin" --check "$REPO_ROOT/site/bench_data.js"
+    assert_true $? "node --check passed on site/app.js and site/bench_data.js"
+
+    local out_15d
+    out_15d=$(python3 -B - "$REPO_ROOT" "$node_bin" 2>&1 <<'PYEOF'
+import json
+import random
+import subprocess
+import sys
+from pathlib import Path
+
+repo = Path(sys.argv[1])
+node_bin = sys.argv[2]
+sys.path.insert(0, str(repo / "proofs"))
+import znav_spec  # type: ignore
+
+# 1. Verify CommonJS exports of bench_data.js & app.js unit primitives
+node_unit = subprocess.run(
+    [
+        node_bin,
+        "-e",
+        """
+        const fs = require("fs");
+        const bench = require(process.argv[1]);
+        const raw = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+        if (JSON.stringify(bench) !== JSON.stringify(raw)) process.exit(2);
+        const spec = require(process.argv[3]);
+        console.log(JSON.stringify({
+          tok_html: spec.tokenize("HTMLParser.v2"),
+          tok_url: spec.tokenize("myURLShortenerApp"),
+          cands_cr: spec.candidateFinitePrefix("/Users/username/CODE.REPOSITORIES").slice(0, 6),
+          cands_cafe: spec.candidateFinitePrefix("/private/tmp/café").slice(0, 4),
+          blen_cafe: spec.pathByteLen("/private/tmp/café"),
+        }));
+        """,
+        str(repo / "site" / "bench_data.js"),
+        str(repo / "benchmarks" / "results.json"),
+        str(repo / "site" / "app.js"),
+    ],
+    capture_output=True,
+    text=True,
+    check=True,
+)
+u = json.loads(node_unit.stdout)
+assert u["tok_html"] == znav_spec.tokenize("HTMLParser.v2")
+assert u["tok_url"] == znav_spec.tokenize("myURLShortenerApp")
+assert u["cands_cr"] == znav_spec.candidate_finite_prefix("/Users/username/CODE.REPOSITORIES")[:6]
+assert u["cands_cafe"] == znav_spec.candidate_finite_prefix("/private/tmp/café")[:4]
+assert u["blen_cafe"] == znav_spec.path_byte_len("/private/tmp/café") == 18
+
+# 2. 200-operation randomized differential trace conformance (`site/app.js --trace` vs `znav_spec.py`)
+rng = random.Random(15002026)
+dirs = [
+    "/",
+    "/Users/username/CODE.REPOSITORIES",
+    "/Users/username/CACHE.REPOS",
+    "/Users/username/TEMP.REPOS",
+    "/Users/username/SCRIPT.REPOS",
+    "/Users/username/HTMLParser.v2",
+    "/Users/username/GIT.STATUS",
+    "/Users/username/2026-roadmap",
+    "/private/tmp/café",
+    "/Users/username/CODE.REPOSITORIES/zsh-znav",
+    "/Users/username/CODE.REPOSITORIES/zsh-wh",
+    "/Users/username/CODE.REPOSITORIES/code-verification",
+]
+ops = []
+t = 1795126400.0
+for d in dirs[1:7]:
+    ops.append({"op": "seed", "dir": d, "t": t})
+for _ in range(200):
+    r = rng.random()
+    d = rng.choice(dirs)
+    if r < 0.55:
+        t += rng.uniform(-3600.0, 18000.0)
+        ops.append({"op": "visit", "dir": d, "t": round(t, 4)})
+    elif r < 0.70:
+        ops.append({"op": "seed", "dir": d, "t": round(t, 4)})
+    elif r < 0.80 and d != "/":
+        ops.append({"op": "delete", "dir": d, "prune": rng.choice([True, False])})
+    elif r < 0.85:
+        ops.append({"op": "prune"})
+    else:
+        q = rng.choice([["cr"], ["car"], ["ter"], ["code", "ver"], ["html", "v2"], ["zz"], ["zw"]])
+        ops.append({"op": "resolve", "query": q, "colon": rng.choice([True, False])})
+
+payload = {"half_life": 259200.0, "reserved": ["root", "tr", "pr", "ls", "gs"], "ops": ops}
+py_res = znav_spec.run_trace_json(payload)
+js_proc = subprocess.run(
+    [node_bin, str(repo / "site" / "app.js"), "--trace"],
+    input=json.dumps(payload),
+    text=True,
+    capture_output=True,
+    check=True,
+)
+js_res = json.loads(js_proc.stdout)
+
+assert js_res["ordered_dirs"] == py_res["ordered_dirs"], "ordered_dirs mismatch"
+assert js_res["phi"] == py_res["phi"], f"phi mismatch: {js_res['phi']} != {py_res['phi']}"
+assert js_res["resolutions"] == py_res["resolutions"], "resolutions mismatch"
+max_err = max((abs(js_res["scores"][k] - py_res["scores"][k]) for k in py_res["scores"]), default=0.0)
+assert max_err < 1e-12, f"Score divergence: {max_err}"
+print(f"JS_SPEC_PARITY_OK:max_err={max_err:.3e}")
+PYEOF
+    )
+    assert_true $? "Suite 15d (200-op Node JS vs Python znav_spec.py differential trace) exited 0"
+    [[ $out_15d == *"JS_SPEC_PARITY_OK"* ]] \
+      && pass "site/app.js matches proofs/znav_spec.py 1-to-1 across 200 ops ($out_15d)" \
+      || fail "Suite 15d output: $out_15d"
+  else
+    pass "node binary not installed on host; Python static checks completed"
   fi
 }
 

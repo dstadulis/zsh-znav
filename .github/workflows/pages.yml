@@ -1,0 +1,174 @@
+name: Deploy GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "site/**"
+      - "benchmarks/results.json"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+
+jobs:
+  build:
+    name: Assemble & Audit Static Site Bundle
+    runs-on: ubuntu-latest
+    outputs:
+      pages_workflow_mode: ${{ steps.detect_pages.outputs.workflow_mode }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Assemble _site bundle
+        run: |
+          rm -rf _site
+          mkdir -p _site
+          cp -R site/. _site/
+          cp -R site _site/
+          touch _site/.nojekyll
+          find _site -name ".DS_Store" -delete
+
+      - name: Verify benchmark sync, relative links & offline file:// safety
+        run: |
+          python3 -B benchmarks/update_readme.py --check
+          python3 -B - << 'PY'
+          import html.parser
+          import json
+          import pathlib
+          import re
+          import sys
+
+          bundle = pathlib.Path("_site")
+          required = [
+              bundle / "index.html",
+              bundle / "styles.css",
+              bundle / "app.js",
+              bundle / "bench_data.js",
+              bundle / "favicon.svg",
+              bundle / ".nojekyll",
+              bundle / "site" / "app.js",
+              bundle / "site" / "styles.css",
+              bundle / "site" / "bench_data.js",
+              bundle / "site" / "favicon.svg",
+          ]
+          for p in required:
+              if not p.is_file() or (p.name != ".nojekyll" and p.stat().st_size == 0):
+                  sys.exit(f"Missing or empty required Pages artifact: {p}")
+
+          html_text = (bundle / "index.html").read_text(encoding="utf-8")
+          css_text = (bundle / "styles.css").read_text(encoding="utf-8")
+          js_text = (bundle / "app.js").read_text(encoding="utf-8")
+
+          class LinkAuditParser(html.parser.HTMLParser):
+              def __init__(self):
+                  super().__init__()
+                  self.ids = set()
+                  self.refs = []
+                  self.module_scripts = []
+                  self._code_depth = 0
+                  self.raw_math_leaks = []
+
+              def handle_starttag(self, tag, attrs):
+                  if tag in ("script", "style", "pre", "code"):
+                      self._code_depth += 1
+                  amap = dict(attrs)
+                  if amap.get("id"):
+                      self.ids.add(amap["id"])
+                  if tag == "script" and amap.get("type") == "module":
+                      self.module_scripts.append(amap.get("src", "<inline>"))
+                  for key in ("href", "src"):
+                      val = amap.get(key)
+                      if val:
+                          self.refs.append((tag, key, val))
+
+              def handle_endtag(self, tag):
+                  if tag in ("script", "style", "pre", "code") and self._code_depth > 0:
+                      self._code_depth -= 1
+
+              def handle_data(self, data):
+                  if self._code_depth == 0 and re.search(r"\$[^$]+\$|\\[A-Za-z]+", data):
+                      self.raw_math_leaks.append((self.getpos(), data.strip()))
+
+          parser = LinkAuditParser()
+          parser.feed(html_text)
+          if parser.module_scripts:
+              sys.exit(f"type='module' scripts break file:// CORS: {parser.module_scripts}")
+          if parser.raw_math_leaks:
+              sys.exit(f"Unrendered raw LaTeX/$...$ in index.html: {parser.raw_math_leaks}")
+
+          for tag, attr, ref in parser.refs:
+              if ref.startswith(("http://", "https://", "mailto:", "data:")):
+                  continue
+              if ref.startswith("#"):
+                  anchor = ref[1:]
+                  if anchor and anchor not in parser.ids:
+                      sys.exit(f"Broken internal anchor {ref} in <{tag} {attr}=...>")
+                  continue
+              clean_ref = ref.split("#", 1)[0].split("?", 1)[0]
+              if not (bundle / clean_ref).is_file():
+                  sys.exit(f"Broken relative asset {ref} in <{tag} {attr}=...>")
+
+          for css_ref in re.findall(r"url\(([^)]+)\)", css_text):
+              cleaned = css_ref.strip().strip("\"'")
+              if cleaned.startswith(("http://", "https://", "data:", "#")):
+                  continue
+              if not (bundle / cleaned.split("#", 1)[0].split("?", 1)[0]).is_file():
+                  sys.exit(f"Broken CSS url() asset: {cleaned}")
+
+          if re.search(r"\bfetch\s*\(|\bXMLHttpRequest\b", js_text):
+              sys.exit("Detected network fetch()/XMLHttpRequest in site/app.js (breaks offline file://)")
+
+          results_json = json.loads(pathlib.Path("benchmarks/results.json").read_text(encoding="utf-8"))
+          bench_js = (bundle / "bench_data.js").read_text(encoding="utf-8")
+          assert json.dumps(results_json, indent=2) in bench_js, "bench_data.js payload mismatch"
+          print(f"Verified Pages bundle: {len(parser.refs)} HTML refs, {len(parser.ids)} anchors, 0 broken paths.")
+          PY
+
+      - name: Detect GitHub Pages build mode
+        id: detect_pages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          build_type="$(gh api "repos/${GITHUB_REPOSITORY}/pages" --jq '.build_type // ""' 2>/dev/null || true)"
+          if [ "$build_type" = "workflow" ]; then
+            echo "workflow_mode=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "workflow_mode=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Static Pages bundle verified cleanly. GitHub Pages build_type is '${build_type:-unconfigured}' (enable Pages with source 'GitHub Actions' once supported by repo visibility/plan to publish to github.io)."
+          fi
+
+      - name: Configure Pages
+        if: steps.detect_pages.outputs.workflow_mode == 'true'
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        if: steps.detect_pages.outputs.workflow_mode == 'true'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    if: needs.build.outputs.pages_workflow_mode == 'true'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

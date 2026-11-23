@@ -1,5 +1,7 @@
 # `zsh-znav` — Formally Verified, Zero-Fork Directory Navigation for Zsh
 
+> **Live Interactive Playground & Monograph**: **[https://dstadulis.github.io/zsh-znav/](https://dstadulis.github.io/zsh-znav/)** — try the browser-based Zsh 5.9 + Powerlevel10k terminal simulator (powered by a 1-to-1 JS port of `proofs/znav_spec.py`), inspect candidate lattices $K(d)$, and explore Log-Epoch ($\oplus_\tau$) decay & benchmark scaling interactively.
+
 `zsh-znav` (`znav` & `j`) replaces manually curated directory aliases (`alias cr='cd ~/CODE.REPOSITORIES'`, `alias sr='cd ~/SCRIPT.REPOS'`) with an **information-theoretically grounded, machine-checked, 100% pure-Zsh navigation engine** built directly atop Zsh's C hash tables and hook protocols.
 
 Every hot path—startup, `chpwd` tracking, one-shot `precmd` alias protection, `~cr` C hash-table expansion, `~[cr]` dynamic resolution, `j cr` jumping, `~[<TAB>` completion, `cdr` import, and atomic WAL compaction—executes **100% in-process in pure Zsh (`0` `fork(2)` calls, `0` subshells, `0` external binaries, even under `PATH=""`)**.
