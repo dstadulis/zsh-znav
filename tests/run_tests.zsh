@@ -16,6 +16,7 @@
 #  11. Migration Importers (`znav import --zoxide` Mock & `znav import --cdr` Pure Zsh)
 #  12. Hermetic Packaging & Installer (`zsh-znav.plugin.zsh`, `install.sh`, `uninstall.sh`)
 #  13. Benchmark Pipeline, README Auto-Injector & CI/CD Workflow Loop-Safety Audit
+#  14. Powerlevel10k Full-Path + Shortcode Prompt Integration (`ZNAV_PWD_CODE`, `ZNAV_P10K_PROMPT`, Reload & `always`-Block Safety)
 # ==============================================================================
 
 emulate -L zsh
@@ -88,6 +89,16 @@ if [[ -e "$REAL_HOME/.zshrc" ]]; then
     HOST_ZSHRC_READABLE=1
     HOST_ZSHRC_MTIME=${_st[mtime]}
     HOST_ZSHRC_SIZE=${_st[size]}
+  fi
+fi
+integer HOST_P10K_READABLE=0
+local HOST_P10K_MTIME="" HOST_P10K_SIZE=""
+if [[ -e "$REAL_HOME/.p10k.zsh" ]]; then
+  typeset -A _st_p10k
+  if zstat -H _st_p10k "$REAL_HOME/.p10k.zsh" 2>/dev/null; then
+    HOST_P10K_READABLE=1
+    HOST_P10K_MTIME=${_st_p10k[mtime]}
+    HOST_P10K_SIZE=${_st_p10k[size]}
   fi
 fi
 integer HOST_ZNAV_DATA_EXISTED=0
@@ -1299,6 +1310,13 @@ for req_perf in (
 ):
     assert req_perf in perf_raw, f"Missing '{req_perf}' in perf-autoupdate.yml"
 
+# Ensure auto-commit step never pushes [skip ci] commits onto pull_request branches (which would suppress CI checks)
+commit_step_section = perf_raw.split("Auto-commit and push updated benchmark data", 1)[1]
+commit_if_block = commit_step_section.split("run:", 1)[0]
+assert "pull_request" not in commit_if_block, (
+    f"perf-autoupdate.yml auto-commit step must not push [skip ci] commits on pull_request: {commit_if_block}"
+)
+
 print("WORKFLOWS_OK")
 PYEOF
   )
@@ -1306,6 +1324,526 @@ PYEOF
   [[ $audit_13c == *"WORKFLOWS_OK"* ]] \
     && pass "ci.yml & perf-autoupdate.yml parse cleanly, guard all algorithmic paths, and enforce quadruple loop protection" \
     || fail "Workflow audit failed: $audit_13c"
+}
+
+# ==============================================================================
+# SUITE 14: Powerlevel10k Full-Path + Shortcode Prompt Integration
+# ==============================================================================
+print -r -- "\n--- Suite 14: Powerlevel10k Full-Path + Shortcode Prompt Integration ---"
+() {
+  local sb="$SANDBOX_ROOT/s14_p10k"
+  zf_mkdir -p "$sb/home/CODE.REPOSITORIES/zsh-znav" \
+              "$sb/home/CODE.REPOSITORIES/zsh-wh" \
+              "$sb/home/SCRIPT.REPOS" \
+              "$sb/home/GIT.STATUS" \
+              "$sb/home/EPHEMERAL.DIR" \
+              "$sb/home/CUSTOM.WORK/sub" \
+              "$sb/unmapped/outside" \
+              "$sb/data_14a" "$sb/data_14b" "$sb/data_14c" "$sb/data_14d" "$sb/data_14e"
+  local exp_home=${${:-$sb/home}:A}
+  local exp_unmapped=${${:-$sb/unmapped/outside}:A}
+
+  # 14a. $ZNAV_PWD_CODE lifecycle across $HOME, unmapped dirs, seed, cd, import, alias re-projection & prune
+  local out_14a
+  out_14a=$(HOME="$exp_home" ZNAV_DATA_DIR="$sb/data_14a" ZNAV_AUTO_SEED=0 LC_ALL=C TERM=dumb \
+    /bin/zsh -dfi +Z +m -c '
+      PROMPT="" RPROMPT=""
+      setopt warn_create_global
+      builtin cd -- "$2" || exit 10
+      source "$1" || exit 11
+      # Cold start in unmapped dir with ZNAV_AUTO_SEED=0 -> empty ZNAV_PWD_CODE
+      [[ -z $ZNAV_PWD_CODE ]] || { print -r -- "UNMAPPED_INIT:$ZNAV_PWD_CODE"; exit 12; }
+
+      # Seed $HOME while standing in $HOME -> ZNAV_PWD_CODE must remain "" ($HOME omits redundant badge)
+      builtin cd -q -- "$HOME" || exit 13
+      znav seed "$HOME" >/dev/null || exit 14
+      [[ -z $ZNAV_PWD_CODE ]] || { print -r -- "HOME_SEED:$ZNAV_PWD_CODE"; exit 15; }
+
+      # Move into seeded & newly visited directories -> O(1) ZNAV_PWD_CODE updates
+      cd "$HOME/CODE.REPOSITORIES" || exit 16
+      [[ $ZNAV_PWD_CODE == cr ]] || { print -r -- "CR_CODE:$ZNAV_PWD_CODE"; exit 17; }
+
+      cd "$HOME/SCRIPT.REPOS" || exit 18
+      [[ $ZNAV_PWD_CODE == sr ]] || { print -r -- "SR_CODE:$ZNAV_PWD_CODE"; exit 19; }
+
+      cd "$HOME/CODE.REPOSITORIES/zsh-znav" || exit 20
+      [[ $ZNAV_PWD_CODE == zz ]] || { print -r -- "ZZ_CODE:$ZNAV_PWD_CODE"; exit 21; }
+
+      cd "$HOME/CODE.REPOSITORIES/zsh-wh" || exit 22
+      [[ $ZNAV_PWD_CODE == zw ]] || { print -r -- "ZW_CODE:$ZNAV_PWD_CODE"; exit 23; }
+
+      # Return to $HOME -> ZNAV_PWD_CODE cleared to ""
+      cd "$HOME" || exit 24
+      [[ -z $ZNAV_PWD_CODE ]] || { print -r -- "HOME_CD:$ZNAV_PWD_CODE"; exit 25; }
+
+      # Late .zshrc alias shadowing active $ZNAV_PWD_CODE -> _znav_precmd_once updates $ZNAV_PWD_CODE!
+      cd "$HOME/GIT.STATUS" || exit 26
+      [[ $ZNAV_PWD_CODE == gs ]] || { print -r -- "GS_BEFORE:$ZNAV_PWD_CODE"; exit 27; }
+      alias gs="git status"
+      add-zsh-hook precmd _znav_precmd_once
+      _znav_precmd_once || exit 28
+      [[ $ZNAV_PWD_CODE == gis ]] || { print -r -- "GS_AFTER:$ZNAV_PWD_CODE"; exit 29; }
+      unalias gs
+
+      # Delete tracked directory and run `znav prune` while standing in it -> ZNAV_PWD_CODE cleared!
+      cd "$HOME/EPHEMERAL.DIR" || exit 30
+      [[ -n $ZNAV_PWD_CODE && $ZNAV_PWD_CODE == ${_ZNAV_DIR2CODE[$HOME/EPHEMERAL.DIR]} ]] \
+        || { print -r -- "ED_BEFORE:$ZNAV_PWD_CODE"; exit 31; }
+      /bin/rmdir "$HOME/EPHEMERAL.DIR" || exit 32
+      znav prune || exit 33
+      [[ -z $ZNAV_PWD_CODE ]] || { print -r -- "ED_AFTER_PRUNE:$ZNAV_PWD_CODE"; exit 34; }
+
+      # Mid-session manual `hash -d zz=/tmp` override while standing in zsh-znav:
+      # ~zz now resolves to /tmp, so _znav_update_pwd_code / prompt_znav MUST clear ZNAV_PWD_CODE
+      # immediately (and re-visiting zsh-znav re-projects it to next lattice code `zsz`)!
+      cd "$HOME/CODE.REPOSITORIES/zsh-znav" || exit 35
+      [[ $ZNAV_PWD_CODE == zz && ${nameddirs[zz]:-} == "$HOME/CODE.REPOSITORIES/zsh-znav" ]] || exit 36
+      hash -d zz="/tmp"
+      prompt_znav || exit 37
+      [[ -z $ZNAV_PWD_CODE ]] || { print -r -- "HIJACKED_ZZ_STILL_SET:$ZNAV_PWD_CODE"; exit 38; }
+      cd "$HOME" && cd "$HOME/CODE.REPOSITORIES/zsh-znav" || exit 39
+      [[ $ZNAV_PWD_CODE == zsz && ${nameddirs[zsz]:-} == "$HOME/CODE.REPOSITORIES/zsh-znav" && ${nameddirs[zz]:-} == "/tmp" ]] \
+        || { print -r -- "REPROJECT_AFTER_HASHD:$ZNAV_PWD_CODE|${nameddirs[zsz]:-}|${nameddirs[zz]:-}"; exit 40; }
+      unhash -d zz
+
+      # Top-M cap (`ZNAV_MAX_NAMEDDIRS=2`) unprojected rank & eviction safety:
+      # Whenever ZNAV_PWD_CODE is non-empty, ~$ZNAV_PWD_CODE MUST exist in $nameddirs and equal ${PWD:A}!
+      float -E 17 _tbase=$EPOCHREALTIME
+      ZNAV_MAX_NAMEDDIRS=2
+      # Give CODE.REPOSITORIES and SCRIPT.REPOS high scores so they hold ranks #1 and #2
+      repeat 5 { ZNAV_NOW=$(( _tbase + 100000.0 )) cd "$HOME/CODE.REPOSITORIES"; ZNAV_NOW=$(( _tbase + 100000.0 )) cd "$HOME/SCRIPT.REPOS"; }
+      [[ $ZNAV_PWD_CODE == sr && ${nameddirs[sr]:-} == "$HOME/SCRIPT.REPOS" ]] || { print -r -- "TOP2_INIT:$ZNAV_PWD_CODE"; exit 41; }
+      # Visit low-ranked directory outside top-2 (Fast Path C) -> not in $nameddirs, so ZNAV_PWD_CODE MUST be ""!
+      ZNAV_NOW=$(( _tbase - 500000.0 )) cd "$HOME/CUSTOM.WORK/sub" || exit 42
+      [[ -z $ZNAV_PWD_CODE && -z ${nameddirs[cws]:-} ]] || { print -r -- "UNPROJECTED_LEAK:$ZNAV_PWD_CODE"; exit 43; }
+      # Now promote colliding SUPER.REPOS above SCRIPT.REPOS to evict SCRIPT.REPOS from top-2, then revisit evicted dir at low timestamp!
+      /bin/mkdir -p "$HOME/SUPER.REPOS"
+      repeat 8 { ZNAV_NOW=$(( _tbase + 900000.0 )) cd "$HOME/SUPER.REPOS"; ZNAV_NOW=$(( _tbase + 800000.0 )) cd "$HOME/CODE.REPOSITORIES"; }
+      # Top-2 are now SUPER.REPOS (`sr`, claiming `sr` from evicted SCRIPT.REPOS!) and CODE.REPOSITORIES (`cr`)
+      [[ ${nameddirs[sr]:-} == "$HOME/SUPER.REPOS" ]] || { print -r -- "EVICT_CLAIM_SR:${nameddirs[sr]:-}"; exit 44; }
+      # Single old-timestamp visit to evicted SCRIPT.REPOS hits Fast Path C (remains outside top-2) -> MUST NOT show hijacked `sr`!
+      ZNAV_NOW=$(( _tbase - 500000.0 )) cd "$HOME/SCRIPT.REPOS" || exit 45
+      [[ -z $ZNAV_PWD_CODE ]] || { print -r -- "EVICTED_STALE_CODE:$ZNAV_PWD_CODE"; exit 46; }
+
+      print -r -- "S14A_OK"
+    ' _ "$PLUGIN_FILE" "$exp_unmapped" 2>&1)
+  assert_true $? "Suite 14a (\$ZNAV_PWD_CODE lifecycle under warn_create_global) exited 0"
+  [[ $out_14a == *"S14A_OK"* ]] \
+    && pass "\$ZNAV_PWD_CODE tracks cr/sr/zz/zw in O(1), omits \$HOME & unmapped dirs, updates on alias collision, and clears on prune" \
+    || fail "Suite 14a output: $out_14a"
+
+  # 14b. All 4 ZNAV_P10K_PROMPT modes (`both`, `shortcode`, `path`, `off`), styling overrides & right-prompt injection
+  local out_14b
+  out_14b=$(HOME="$exp_home" ZNAV_DATA_DIR="$sb/data_14b" LC_ALL=C TERM=dumb \
+    /bin/zsh -dfi +Z +m -c '
+      PROMPT="" RPROMPT=""
+      setopt prompt_percent prompt_subst
+
+      # Faithful Powerlevel10k segment + prompt_dir engine mock (mirrors internal/p10k.zsh)
+      typeset -ga MOCK_RENDERED=()
+      typeset -g  MOCK_LAST_SEG_META=""
+      typeset -gi _p9k__force_must_init=0
+      typeset -gA _p9k__cache_ephemeral=()
+
+      p10k() {
+        case ${1:-} in
+          reload)
+            _p9k__force_must_init=1
+            return 0
+            ;;
+          segment)
+            shift
+            local opt state="" bg="0" fg="" icon="" cond="" text="" expand=0
+            local -i OPTIND=1
+            local OPTARG
+            while getopts ":s:b:f:i:c:t:reh" opt; do
+              case $opt in
+                s) state=$OPTARG ;;
+                b) bg=$OPTARG ;;
+                f) fg=$OPTARG ;;
+                i) icon=$OPTARG ;;
+                c) cond=$OPTARG ;;
+                t) text=$OPTARG ;;
+                e) expand=1 ;;
+              esac
+            done
+            MOCK_LAST_SEG_META="bg=${bg}|fg=${fg}|cond=${cond}|exp=${expand}|txt=${text}"
+            if [[ -n $cond ]]; then
+              local eval_cond=${(e):-"$cond"}
+              [[ -z $eval_cond ]] && return 0
+            fi
+            local rendered
+            if (( expand )); then
+              rendered=${(e):-"$text"}
+            else
+              rendered=$text
+            fi
+            MOCK_RENDERED+=("znav:${rendered}")
+            return 0
+            ;;
+        esac
+      }
+
+      prompt_dir() {
+        [[ $0 == prompt_dir ]] || { print -r -- "BAD_ARGZERO:$0"; return 91; }
+        local p=${(%):-%~}
+        MOCK_RENDERED+=("dir:${p}")
+      }
+      instant_prompt_dir() { prompt_dir; }
+
+      render_line() {
+        MOCK_RENDERED=()
+        local elem
+        for elem in "${POWERLEVEL9K_LEFT_PROMPT_ELEMENTS[@]}"; do
+          [[ $elem == newline ]] && break
+          (( $+functions[prompt_$elem] )) && "prompt_$elem"
+        done
+        REPLY="${(j: :)MOCK_RENDERED}"
+      }
+
+      typeset -ga POWERLEVEL9K_LEFT_PROMPT_ELEMENTS=(os_icon dir vcs newline prompt_char)
+      source "$1" || exit 11
+
+      # Verify auto-injection right after `dir`
+      [[ "${POWERLEVEL9K_LEFT_PROMPT_ELEMENTS[*]}" == "os_icon dir znav vcs newline prompt_char" ]] \
+        || { print -r -- "BAD_INJECT:${POWERLEVEL9K_LEFT_PROMPT_ELEMENTS[*]}"; exit 12; }
+
+      # Mode 1: `both` (default) in tracked repo ~/CODE.REPOSITORIES/zsh-znav -> BOTH path and ~zz
+      cd "$HOME/CODE.REPOSITORIES/zsh-znav" || exit 13
+      render_line
+      [[ $REPLY == "dir:~/CODE.REPOSITORIES/zsh-znav znav:~zz" ]] \
+        || { print -r -- "MODE_BOTH_ZZ:$REPLY"; exit 14; }
+      [[ $MOCK_LAST_SEG_META == "bg=0|fg=3|cond=\$ZNAV_PWD_CODE|exp=1|txt=~\$ZNAV_PWD_CODE" ]] \
+        || { print -r -- "DEFAULT_STYLE_META:$MOCK_LAST_SEG_META"; exit 15; }
+
+      # Mode 1 (`both`) in $HOME -> `dir:~` ONLY (no duplicate shortcode segment!)
+      cd "$HOME" || exit 16
+      render_line
+      [[ $REPLY == "dir:~" ]] || { print -r -- "MODE_BOTH_HOME:$REPLY"; exit 17; }
+
+      # Custom user styling overrides (including empty transparent background)
+      cd "$HOME/CODE.REPOSITORIES/zsh-wh" || exit 18
+      POWERLEVEL9K_ZNAV_BACKGROUND="" POWERLEVEL9K_ZNAV_FOREGROUND="6" render_line
+      [[ $REPLY == "dir:~/CODE.REPOSITORIES/zsh-wh znav:~zw" ]] || { print -r -- "MODE_BOTH_ZW:$REPLY"; exit 19; }
+      [[ $MOCK_LAST_SEG_META == "bg=|fg=6|cond=\$ZNAV_PWD_CODE|exp=1|txt=~\$ZNAV_PWD_CODE" ]] \
+        || { print -r -- "CUSTOM_STYLE_META:$MOCK_LAST_SEG_META"; exit 20; }
+
+      # Mode 2: `shortcode` -> ONLY `znav:~zw` in tracked repo, `dir:~` in $HOME, and `dir` preserved in instant_prompt_dir
+      ZNAV_P10K_PROMPT=shortcode
+      p10k reload
+      render_line
+      [[ $REPLY == "znav:~zw" ]] || { print -r -- "MODE_SHORTCODE_ZW:$REPLY"; exit 21; }
+      MOCK_RENDERED=()
+      instant_prompt_dir
+      instant_prompt_znav
+      [[ "${(j: :)MOCK_RENDERED}" == "dir:~/CODE.REPOSITORIES/zsh-wh znav:~zw" ]] \
+        || { print -r -- "INSTANT_SHORTCODE:${MOCK_RENDERED[*]}"; exit 22; }
+      cd "$HOME" || exit 23
+      render_line
+      [[ $REPLY == "dir:~" ]] || { print -r -- "MODE_SHORTCODE_HOME:$REPLY"; exit 24; }
+
+      # Mode 3: `path` -> ONLY `dir:~/CODE.REPOSITORIES/zsh-znav` (znav auto-injection removed on reload!)
+      cd "$HOME/CODE.REPOSITORIES/zsh-znav" || exit 25
+      ZNAV_P10K_PROMPT=path
+      p10k reload
+      [[ "${POWERLEVEL9K_LEFT_PROMPT_ELEMENTS[*]}" == "os_icon dir vcs newline prompt_char" ]] \
+        || { print -r -- "PATH_ELEMENTS:${POWERLEVEL9K_LEFT_PROMPT_ELEMENTS[*]}"; exit 26; }
+      render_line
+      [[ $REPLY == "dir:~/CODE.REPOSITORIES/zsh-znav" ]] || { print -r -- "MODE_PATH_ZZ:$REPLY"; exit 27; }
+      MOCK_RENDERED=(); prompt_znav
+      (( ${#MOCK_RENDERED} == 0 )) || { print -r -- "PROMPT_ZNAV_NOT_SUPPRESSED"; exit 28; }
+
+      # Mode 4: `off` -> stock `prompt_dir` (~zz via native %~) and `prompt_znav` suppressed
+      ZNAV_P10K_PROMPT=off
+      p10k reload
+      render_line
+      [[ $REPLY == "dir:~zz" ]] || { print -r -- "MODE_OFF_ZZ:$REPLY"; exit 29; }
+
+      # Right-prompt `dir_joined` injection & user-placed `znav_joined` non-duplication
+      ZNAV_P10K_PROMPT=both
+      typeset -ga POWERLEVEL9K_LEFT_PROMPT_ELEMENTS=(os_icon vcs prompt_char)
+      typeset -ga POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS=(status dir_joined time)
+      p10k reload
+      [[ "${POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS[*]}" == "status dir_joined znav time" ]] \
+        || { print -r -- "RIGHT_INJECT:${POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS[*]}"; exit 30; }
+      typeset -ga POWERLEVEL9K_LEFT_PROMPT_ELEMENTS=(os_icon dir znav_joined vcs)
+      typeset -ga POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS=(status time)
+      p10k reload
+      [[ "${POWERLEVEL9K_LEFT_PROMPT_ELEMENTS[*]}" == "os_icon dir znav_joined vcs" ]] \
+        || { print -r -- "DUP_INJECT:${POWERLEVEL9K_LEFT_PROMPT_ELEMENTS[*]}"; exit 31; }
+
+      # Edge case: `dir` as the very last element in array (no reverse-slice duplication!)
+      typeset -ga POWERLEVEL9K_LEFT_PROMPT_ELEMENTS=(os_icon dir)
+      p10k reload
+      [[ "${POWERLEVEL9K_LEFT_PROMPT_ELEMENTS[*]}" == "os_icon dir znav" ]] \
+        || { print -r -- "TAIL_INJECT:${POWERLEVEL9K_LEFT_PROMPT_ELEMENTS[*]}"; exit 32; }
+
+      print -r -- "S14B_OK"
+    ' _ "$PLUGIN_FILE" 2>&1)
+  assert_true $? "Suite 14b (ZNAV_P10K_PROMPT=both|shortcode|path|off & segment styling) exited 0"
+  [[ $out_14b == *"S14B_OK"* ]] \
+    && pass "All 4 ZNAV_P10K_PROMPT modes, custom POWERLEVEL9K_ZNAV_* overrides, instant_prompt_znav, and left/right element injection verified" \
+    || fail "Suite 14b output: $out_14b"
+
+  # 14c. Manual `hash -d` preservation inside `prompt_dir` + `{ ... } always { ... }` restoration under return/exception
+  local out_14c
+  out_14c=$(HOME="$exp_home" ZNAV_DATA_DIR="$sb/data_14c" LC_ALL=C TERM=dumb \
+    /bin/zsh -dfi +Z +m -c '
+      PROMPT="" RPROMPT=""
+      setopt AUTO_CD
+
+      typeset -g INSIDE_SNAPSHOT=""
+      prompt_dir() {
+        [[ $0 == prompt_dir ]] || return 81
+        INSIDE_SNAPSHOT="cr=${+nameddirs[cr]}|zz=${+nameddirs[zz]}|cw=${nameddirs[customwork]:-}|sr=${nameddirs[sr]:-}|p=${(%):-%~}"
+        case ${1:-normal} in
+          early) return 7 ;;
+          boom)  local _err=${ZNAV_NONEXISTENT_REQUIRED_PARAM?forced_error} ;;
+        esac
+        return 0
+      }
+
+      hash -d customwork="$HOME/CUSTOM.WORK"
+      source "$1" || exit 11
+      cd "$HOME/CODE.REPOSITORIES/zsh-znav" || exit 12
+      # Also simulate user manually overriding znav-owned `sr` right before prompt_dir!
+      hash -d sr="/tmp"
+
+      # 1. Normal call inside tracked repo: znav-owned `cr` & `zz` masked, manual `customwork` & overridden `sr` kept!
+      prompt_dir normal || exit 13
+      [[ $INSIDE_SNAPSHOT == "cr=0|zz=0|cw=${HOME}/CUSTOM.WORK|sr=/tmp|p=~/CODE.REPOSITORIES/zsh-znav" ]] \
+        || { print -r -- "SNAP_NORMAL:$INSIDE_SNAPSHOT"; exit 14; }
+      [[ ${nameddirs[cr]:-} == "$HOME/CODE.REPOSITORIES" && ${nameddirs[zz]:-} == "$HOME/CODE.REPOSITORIES/zsh-znav" ]] \
+        || { print -r -- "NOT_RESTORED_NORMAL"; exit 15; }
+
+      # 2. Inside manual user `hash -d` directory: `prompt_dir` MUST still contract `~customwork/sub`!
+      cd "$HOME/CUSTOM.WORK/sub" || exit 16
+      prompt_dir normal || exit 17
+      [[ $INSIDE_SNAPSHOT == *"|p=~customwork/sub" ]] \
+        || { print -r -- "MANUAL_HASHD_BROKEN:$INSIDE_SNAPSHOT"; exit 18; }
+
+      # 3. Early non-zero return (`return 7`) restores _ZNAV_OWNED_NAMEDDIRS and preserves return code 7
+      cd "$HOME/CODE.REPOSITORIES/zsh-znav" || exit 19
+      integer rc=0
+      prompt_dir early || rc=$?
+      (( rc == 7 )) || { print -r -- "BAD_EARLY_RC:$rc"; exit 20; }
+      [[ ${nameddirs[cr]:-} == "$HOME/CODE.REPOSITORIES" && ${nameddirs[zz]:-} == "$HOME/CODE.REPOSITORIES/zsh-znav" ]] \
+        || { print -r -- "NOT_RESTORED_EARLY"; exit 21; }
+
+      # 4. Parameter exception inside prompt_dir STILL restores 100% of _ZNAV_OWNED_NAMEDDIRS via `always`!
+      {
+        prompt_dir boom 2>/dev/null
+      } always {
+        TRY_BLOCK_ERROR=0
+      }
+      [[ ${nameddirs[cr]:-} == "$HOME/CODE.REPOSITORIES" && ${nameddirs[zz]:-} == "$HOME/CODE.REPOSITORIES/zsh-znav" ]] \
+        || { print -r -- "NOT_RESTORED_BOOM:${nameddirs[cr]:-}|${nameddirs[zz]:-}"; exit 22; }
+
+      # 5. Compatibility under `sh_glob` + `ksh_arrays` AND intact navigation (`~zz`, `~[zz]`, `j`)
+      (
+        setopt sh_glob ksh_arrays
+        prompt_dir normal || exit 31
+        prompt_znav || exit 32
+      ) || exit 23
+      cd "$HOME" || exit 24
+      [[ ~zz == "$HOME/CODE.REPOSITORIES/zsh-znav" && ~[zz] == "$HOME/CODE.REPOSITORIES/zsh-znav" ]] || exit 26
+      j cr || exit 27
+      [[ $PWD == "$HOME/CODE.REPOSITORIES" ]] || exit 28
+
+      print -r -- "S14C_OK"
+    ' _ "$PLUGIN_FILE" 2>&1)
+  assert_true $? "Suite 14c (always-block restoration, manual hash -d preservation & sh_glob/ksh_arrays safety) exited 0"
+  [[ $out_14c == *"S14C_OK"* ]] \
+    && pass "_ZNAV_OWNED_NAMEDDIRS suppressed inside prompt_dir, manual hash -d respected, and 100% restored across normal/early/error exits" \
+    || fail "Suite 14c output: $out_14c"
+
+  # Also verify bare `zz` (`AUTO_CD` + `CDABLE_VARS` in SHINSTDIN `-s`) works right after `prompt_dir`!
+  local out_14c_bare
+  out_14c_bare=$(HOME="$exp_home" ZNAV_DATA_DIR="$sb/data_14c" LC_ALL=C TERM=dumb \
+    /bin/zsh -dfis +Z +m <<EOF 2>/dev/null
+PROMPT="" RPROMPT="" PS1="" PS2=""
+setopt NO_PROMPT_SP AUTO_CD CDABLE_VARS
+prompt_dir() { local p=\${(%):-%~}; }
+source ${(q)PLUGIN_FILE}
+prompt_dir
+zz
+print -r -- "BARE_ZZ_AFTER_PROMPT_DIR:\$PWD"
+exit 0
+EOF
+  )
+  [[ $out_14c_bare == *"BARE_ZZ_AFTER_PROMPT_DIR:$exp_home/CODE.REPOSITORIES/zsh-znav"* ]] \
+    && pass "Bare shortcode 'zz' (AUTO_CD + CDABLE_VARS) navigates cleanly after prompt_dir unhash/restore cycle" \
+    || fail "Bare 'zz' after prompt_dir failed: $out_14c_bare"
+
+  # 14d. `.zshrc` load-order independence, `source ~/.p10k.zsh` reload survival, 0-byte console init & PATH="" zero-fork
+  cat > "$sb/mock_p10k_theme.zsh" <<'EOF'
+typeset -gi _p9k__force_must_init=0
+typeset -gA _p9k__cache_ephemeral=()
+typeset -ga P10K_RENDER_LOG=()
+p10k() {
+  case ${1:-} in
+    reload) _p9k__force_must_init=1; return 0 ;;
+    segment)
+      shift
+      local opt cond="" text="" expand=0
+      local -i OPTIND=1
+      local OPTARG
+      while getopts ":s:b:f:i:c:t:reh" opt; do
+        case $opt in
+          c) cond=$OPTARG ;;
+          t) text=$OPTARG ;;
+          e) expand=1 ;;
+        esac
+      done
+      if [[ -n $cond ]]; then
+        local cval=${(e):-"$cond"}
+        [[ -z $cval ]] && return 0
+      fi
+      (( expand )) && P10K_RENDER_LOG+=("${(e):-"$text"}") || P10K_RENDER_LOG+=("$text")
+      ;;
+  esac
+}
+prompt_os_icon() { P10K_RENDER_LOG+=("OSX"); }
+prompt_vcs()     { P10K_RENDER_LOG+=("main"); }
+prompt_dir()     { P10K_RENDER_LOG+=("${(%):-%~}"); }
+_p9k_precmd() {
+  P10K_RENDER_LOG=()
+  local seg
+  for seg in "${POWERLEVEL9K_LEFT_PROMPT_ELEMENTS[@]}"; do
+    [[ $seg == newline ]] && break
+    (( $+functions[prompt_$seg] )) && "prompt_$seg"
+  done
+}
+typeset -ga precmd_functions=(_p9k_precmd ${precmd_functions:#_p9k_precmd})
+# Note: in real p10k (_p9k_setup), existing precmd_functions precede _p9k_precmd:
+typeset -ga precmd_functions=(${precmd_functions:#_p9k_precmd} _p9k_precmd)
+EOF
+
+  cat > "$sb/mock_p10k_config.zsh" <<'EOF'
+() {
+  emulate -L zsh -o extended_glob
+  unset -m '(POWERLEVEL9K_*|DEFAULT_USER)~POWERLEVEL9K_GITSTATUS_DIR'
+  typeset -g POWERLEVEL9K_LEFT_PROMPT_ELEMENTS=(os_icon dir vcs newline prompt_char)
+  typeset -g POWERLEVEL9K_SHORTEN_STRATEGY=truncate_to_unique
+  typeset -g POWERLEVEL9K_INSTANT_PROMPT=verbose
+  typeset -g POWERLEVEL9K_DISABLE_HOT_RELOAD=true
+  (( ! $+functions[p10k] )) || p10k reload
+}
+EOF
+
+  # Order A: Oh My Zsh order (zsh-znav -> p10k theme -> .p10k.zsh -> late aliases) + mid-session `source .p10k.zsh` under PATH=""!
+  local out_14d_stdout="$sb/s14d_stdout.log" out_14d_stderr="$sb/s14d_stderr.log"
+  HOME="$exp_home" ZNAV_DATA_DIR="$sb/data_14d" LC_ALL=C TERM=dumb \
+    /bin/zsh -dfi +Z +m -c '
+      PROMPT="" RPROMPT="" PS1="" PS2=""
+      setopt NO_PROMPT_SP
+      builtin cd -q -- "$HOME/CODE.REPOSITORIES"
+      # 1. Plugin loads first (like Oh My Zsh plugins=(... zsh-znav ...))
+      source "$1" || exit 11
+      # 2. Theme loads second
+      source "$2" || exit 12
+      # 3. ~/.p10k.zsh loads third (wipes POWERLEVEL9K_* and calls p10k reload)
+      source "$3" || exit 13
+      # 4. Late personal alias in ~/.zshrc
+      alias gs="git status"
+
+      # Lock down PATH="" to prove 0 forks across precmd_once + p10k reload + prompt rendering!
+      PATH=""
+
+      # Execute precmd hooks in exact shell order before Prompt #1
+      local fn
+      for fn in "${precmd_functions[@]}"; do
+        "$fn"
+      done
+      [[ "${P10K_RENDER_LOG[*]}" == "OSX ~/CODE.REPOSITORIES ~cr main" ]] || exit 21
+      (( ! $+nameddirs[gs] )) || exit 22
+      [[ ~gis == "$HOME/GIT.STATUS" ]] || exit 23
+
+      # Navigate into nested repo and simulate mid-session `source ~/.p10k.zsh` twice!
+      cd "$HOME/CODE.REPOSITORIES/zsh-znav" || exit 24
+      _p9k__cache_ephemeral[stale]=1
+      source "$3" || exit 25
+      source "$3" || exit 26
+      (( ${#_p9k__cache_ephemeral} == 0 && _p9k__force_must_init == 1 )) || exit 27
+      for fn in "${precmd_functions[@]}"; do
+        "$fn"
+      done
+      [[ "${P10K_RENDER_LOG[*]}" == "OSX ~/CODE.REPOSITORIES/zsh-znav ~zz main" ]] || exit 28
+    ' _ "$REPO_ROOT/zsh-znav.plugin.zsh" "$sb/mock_p10k_theme.zsh" "$sb/mock_p10k_config.zsh" \
+    >"$out_14d_stdout" 2>"$out_14d_stderr"
+  assert_true $? "Suite 14d Order A (OMZ load order + mid-session source ~/.p10k.zsh under PATH=\"\") exited 0"
+  assert_eq "$(<"$out_14d_stdout")$(<"$out_14d_stderr")" "" "Zero stdout/stderr console output across zsh-znav + Powerlevel10k init and reload"
+
+  # Order B: Reverse load order (p10k theme -> .p10k.zsh -> zsh-znav)
+  local out_14d_rev
+  out_14d_rev=$(HOME="$exp_home" ZNAV_DATA_DIR="$sb/data_14d" LC_ALL=C TERM=dumb \
+    /bin/zsh -dfi +Z +m -c '
+      PROMPT="" RPROMPT="" PS1="" PS2=""
+      setopt NO_PROMPT_SP
+      builtin cd -q -- "$HOME/CODE.REPOSITORIES/zsh-znav"
+      source "$2" || exit 11
+      source "$3" || exit 12
+      source "$1" || exit 13
+      PATH=""
+      local fn
+      for fn in "${precmd_functions[@]}"; do
+        "$fn"
+      done
+      print -r -- "REV_OK:${P10K_RENDER_LOG[*]}"
+    ' _ "$REPO_ROOT/zsh-znav.plugin.zsh" "$sb/mock_p10k_theme.zsh" "$sb/mock_p10k_config.zsh" 2>&1)
+  assert_true $? "Suite 14d Order B (p10k theme + config loaded BEFORE zsh-znav) exited 0"
+  [[ $out_14d_rev == *"REV_OK:OSX ~/CODE.REPOSITORIES/zsh-znav ~zz main"* ]] \
+    && pass "Both OMZ load order (znav -> p10k) and reverse load order (p10k -> znav) render full path + shortcode on Prompt #1" \
+    || fail "Suite 14d Order B mismatch: $out_14d_rev"
+
+  # 14e. Optional real Powerlevel10k theme integration test (when installed & readable on host/runner)
+  local real_p10k_theme="${P10K_THEME_PATH:-$REAL_HOME/.oh-my-zsh/custom/themes/powerlevel10k/powerlevel10k.zsh-theme}"
+  if [[ -r $real_p10k_theme ]]; then
+    local out_14e
+    out_14e=$(HOME="$exp_home" ZDOTDIR="$exp_home" XDG_CACHE_HOME="$sb/cache" ZNAV_DATA_DIR="$sb/data_14e" \
+      LC_ALL=en_US.UTF-8 TERM=xterm-256color \
+      /bin/zsh -dfi +Z +m -c '
+        typeset -g POWERLEVEL9K_DISABLE_GITSTATUS=true
+        typeset -g POWERLEVEL9K_DISABLE_CONFIGURATION_WIZARD=true
+        source "$1" || exit 11
+        source "$2" || exit 12
+        typeset -g POWERLEVEL9K_LEFT_PROMPT_ELEMENTS=(dir vcs newline prompt_char)
+        typeset -g POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS=()
+        typeset -g POWERLEVEL9K_SHORTEN_STRATEGY=truncate_to_unique
+        typeset -g POWERLEVEL9K_DISABLE_HOT_RELOAD=true
+        p10k reload
+
+        local fn
+        cd "$HOME/CODE.REPOSITORIES/zsh-znav" || exit 13
+        for fn in "${precmd_functions[@]}"; do "$fn"; done
+        local rendered_zz=${(%)${(e)PROMPT}}
+
+        cd "$HOME" || exit 14
+        for fn in "${precmd_functions[@]}"; do "$fn"; done
+        local rendered_home=${(%)${(e)PROMPT}}
+
+        # Simulate mid-session `source ~/.p10k.zsh` reload
+        cd "$HOME/CODE.REPOSITORIES/zsh-wh" || exit 15
+        unset -m "(POWERLEVEL9K_*|DEFAULT_USER)~POWERLEVEL9K_GITSTATUS_DIR"
+        typeset -g POWERLEVEL9K_DISABLE_GITSTATUS=true
+        typeset -g POWERLEVEL9K_LEFT_PROMPT_ELEMENTS=(dir vcs newline prompt_char)
+        typeset -g POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS=()
+        typeset -g POWERLEVEL9K_SHORTEN_STRATEGY=truncate_to_unique
+        typeset -g POWERLEVEL9K_DISABLE_HOT_RELOAD=true
+        p10k reload
+        for fn in "${precmd_functions[@]}"; do "$fn"; done
+        local rendered_zw=${(%)${(e)PROMPT}}
+
+        [[ $rendered_zz == *"zsh-znav"* && $rendered_zz == *"~zz"* ]] || { print -r -- "REAL_ZZ_BAD:$rendered_zz"; exit 21; }
+        [[ $rendered_home != *"~zz"* && $rendered_home != *"~zw"* ]] || { print -r -- "REAL_HOME_BAD:$rendered_home"; exit 22; }
+        [[ $rendered_zw == *"zsh-wh"* && $rendered_zw == *"~zw"* ]] || { print -r -- "REAL_ZW_BAD:$rendered_zw"; exit 23; }
+        print -r -- "REAL_P10K_OK"
+      ' _ "$REPO_ROOT/zsh-znav.plugin.zsh" "$real_p10k_theme" 2>&1)
+    assert_true $? "Suite 14e (Live upstream Powerlevel10k theme prompt expansion) exited 0"
+    [[ $out_14e == *"REAL_P10K_OK"* ]] \
+      && pass "Live Powerlevel10k theme renders both readable path and ~zz/~zw shortcode, omits badge in \$HOME, and survives reload" \
+      || fail "Suite 14e live p10k output: $out_14e"
+  fi
 }
 
 # ==============================================================================
@@ -1322,6 +1860,17 @@ if (( HOST_ZSHRC_READABLE )); then
   fi
 else
   pass "Host ~/.zshrc verified untouched (protected / unmodified)"
+fi
+if (( HOST_P10K_READABLE )); then
+  typeset -A _st_p10k_after
+  zstat -H _st_p10k_after "$REAL_HOME/.p10k.zsh" 2>/dev/null
+  if [[ ${_st_p10k_after[mtime]} == $HOST_P10K_MTIME && ${_st_p10k_after[size]} == $HOST_P10K_SIZE ]]; then
+    pass "Host ~/.p10k.zsh verified 100% untouched (mtime & size unchanged)"
+  else
+    fail "Host ~/.p10k.zsh was modified during test run!"
+  fi
+else
+  pass "Host ~/.p10k.zsh verified untouched (protected / unmodified)"
 fi
 if (( ! HOST_ZNAV_DATA_EXISTED )); then
   [[ ! -e "$REAL_HOME/.local/share/znav" ]] && pass "Host ~/.local/share/znav untouched" \

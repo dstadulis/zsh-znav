@@ -18,5 +18,6 @@ float -E 17 _ts=$REPLY
 
 _znav_lse_fold_score "$_canon" "$_ts"
 _znav_sync_visit "$_canon"
+_znav_update_pwd_code "$_canon"
 _znav_wal_append V "$_ts" "$_canon"
 return 0

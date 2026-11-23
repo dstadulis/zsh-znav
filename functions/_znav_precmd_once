@@ -17,11 +17,14 @@ local _code
 for _code in "${(@k)_ZNAV_CODE2DIR}"; do
   if (( ZNAV_AVOID_COMMANDS )) && (( $+aliases[$_code] || $+functions[$_code] || $+commands[$_code] || $+builtins[$_code] || ${reswords[(Ie)$_code]} )); then
     _znav_rebuild_projections
-    return 0
+    break
   fi
   if (( $+nameddirs[$_code] && $+_ZNAV_OWNED_NAMEDDIRS[$_code] )) && [[ ${nameddirs[$_code]} != ${_ZNAV_OWNED_NAMEDDIRS[$_code]} ]]; then
     _znav_rebuild_projections
-    return 0
+    break
   fi
 done
+
+_znav_update_pwd_code
+_znav_p10k_setup
 return 0

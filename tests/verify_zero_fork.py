@@ -219,6 +219,38 @@ def main() -> int:
             run_step("znav_import_cdr_empty_PATH", f"znav import --cdr --file {str(cdr_file)!r}")
             run_step("znav_prune_empty_PATH", "znav prune")
 
+            run_step(
+                "p10k_setup_and_reload_empty_PATH",
+                'typeset -ga _P10K_SEGS=(); '
+                'typeset -gi _p9k__force_must_init=0; '
+                'typeset -gA _p9k__cache_ephemeral=(stale 1); '
+                'p10k() { '
+                '  if [[ $1 == reload ]]; then _p9k__force_must_init=1; return 0; fi; '
+                '  if [[ $1 == segment ]]; then _P10K_SEGS+=("$*"); return 0; fi; '
+                '}; '
+                'prompt_dir() { typeset -g _LAST_P10K_DIR="${(%):-%~}"; }; '
+                'typeset -ga POWERLEVEL9K_LEFT_PROMPT_ELEMENTS=(os_icon dir vcs newline prompt_char); '
+                'hash -d userpin=/tmp; '
+                '_znav_p10k_setup && '
+                '[[ "${POWERLEVEL9K_LEFT_PROMPT_ELEMENTS[*]}" == "os_icon dir znav vcs newline prompt_char" ]] && '
+                'unset -m "POWERLEVEL9K_*" && '
+                'typeset -ga POWERLEVEL9K_LEFT_PROMPT_ELEMENTS=(os_icon dir vcs) && '
+                'p10k reload && '
+                '[[ "${POWERLEVEL9K_LEFT_PROMPT_ELEMENTS[*]}" == "os_icon dir znav vcs" ]]',
+            )
+            run_step(
+                "p10k_prompt_dir_and_znav_20x_empty_PATH",
+                f'cd {str(home_dir / "CODE.REPOSITORIES")!r} && '
+                '[[ $ZNAV_PWD_CODE == cr ]] && '
+                'repeat 20 { _P10K_SEGS=(); prompt_dir; prompt_znav; instant_prompt_znav } && '
+                '[[ $_LAST_P10K_DIR == "~/CODE.REPOSITORIES" ]] && '
+                '(( ${#_P10K_SEGS} == 2 )) && '
+                '[[ ${nameddirs[cr]} == */CODE.REPOSITORIES && ${nameddirs[userpin]} == /tmp ]] && '
+                f'cd {str(home_dir)!r} && '
+                '[[ -z $ZNAV_PWD_CODE ]] && '
+                'prompt_dir && [[ $_LAST_P10K_DIR == "~" ]]',
+            )
+
             # Positive control: prove that even a single empty command substitution `$(:)`
             # is immediately caught by the XNU Mach rusage_info_v4 oracle!
             run_step("positive_control_single_subshell", "local _fork_probe=$(:)", expect_zero_fork=False)
