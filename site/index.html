@@ -39,7 +39,7 @@
       </nav>
 
       <div class="header-actions">
-        <button type="button" id="theme-toggle" class="btn btn--sm" aria-pressed="false" title="Switch between Terminal (Dark) and Monograph (Light) theme">Monograph (Light)</button>
+        <button type="button" id="theme-toggle" class="btn btn--sm" aria-pressed="false" title="Toggle high-contrast #111111 / #f2f2f2 chromatic polarity">Polarity: Light (#f2f2f2)</button>
         <a class="btn btn--sm btn--primary" href="https://github.com/dstadulis/zsh-znav" target="_blank" rel="noopener">GitHub &rarr;</a>
       </div>
     </div>
@@ -272,7 +272,7 @@
             </div>
 
             <div>
-              <div class="mini-kpi__label" style="margin-bottom:0.25rem;">Append-Only WAL Tail (<code>$ZNAV_DATA_DIR/wal.log</code>):</div>
+              <div class="sub-label">Append-Only WAL Tail (<code>$ZNAV_DATA_DIR/wal.log</code>):</div>
               <div class="wal-box" id="inspector-wal-tail">V 1700000005.00000000 $'/Users/username/CODE.REPOSITORIES'</div>
             </div>
           </aside>
@@ -445,7 +445,7 @@
         <div class="plate">
           <div class="chart-card__head">
             <h3>3. Interactive Zipf(<var>s</var>) Keystroke, Tail-Miss &amp; Recall-Churn Calculator</h3>
-            <div class="preset-row" style="margin-top:0;">
+            <div class="preset-row preset-row--flush">
               <button type="button" class="btn btn--sm" data-zipf-preset="30">Measured N=30</button>
               <button type="button" class="btn btn--sm is-active" data-zipf-preset="100">Measured N=100</button>
               <button type="button" class="btn btn--sm" data-zipf-preset="500">Measured N=500</button>
@@ -478,7 +478,7 @@
                 <input type="range" id="zipf-jumps-slider" min="20" max="500" step="10" value="120">
               </div>
 
-              <p style="font-size:0.78rem; color:var(--text-muted); margin:0.35rem 0 0;">
+              <p class="helper-note">
                 By <strong>Theorem 3b</strong>, whenever <var>s</var> &gt; 1 (&zeta;(<var>s</var>) &lt; &infin;), Shannon entropy <var>H</var><sub>37</sub>(<var>P</var>) = <var>O</var>(1) converges to a finite constant as <var>N</var> &rarr; &infin;, keeping <code>znav</code>'s expected shortcode length near <strong>~2.2 chars</strong> even across thousands of repositories!
               </p>
             </div>
